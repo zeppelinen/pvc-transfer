@@ -1,0 +1,64 @@
+version: "3"
+
+vars:
+  GO_VERSION: "1.21"
+
+tasks:
+  test:unit:
+    desc: Run unit tests
+    cmds:
+      - go test ./...
+
+  test:
+    desc: Run unit tests (alias)
+    cmds:
+      - task: test:unit
+
+  bootstrap:e2e:
+    desc: Provision k3d clusters and MinIO for e2e
+    cmds:
+      - ./scripts/bootstrap-e2e.sh
+
+  e2e:
+    desc: Execute end-to-end test suite (requires bootstrap)
+    cmds:
+      - task: bootstrap:e2e
+      - |
+        export E2E_CONFIG=${E2E_CONFIG:-$(pwd)/.tmp/e2e-config.yaml}
+        go test -tags e2e ./e2e -v
+
+  e2e:destroy:
+    desc: Destroy e2e docker-compose services and k3d clusters
+    cmds:
+      - docker compose -f docker-compose.e2e.yaml down -v --remove-orphans || true
+      - k3d cluster delete pvc-source pvc-dest || true
+
+  deps:e2e:
+    desc: Install local dependencies for e2e (docker must already be installed)
+    cmds:
+      - ./scripts/install-e2e-deps.sh
+
+  build:linux-amd64:
+    desc: Build binary for linux/amd64
+    cmds:
+      - mkdir -p bin
+      - GOOS=linux GOARCH=amd64 go build -o bin/pvc-transfer-linux-amd64 ./cmd/pvc-transfer
+
+  build:linux-arm64:
+    desc: Build binary for linux/arm64
+    cmds:
+      - mkdir -p bin
+      - GOOS=linux GOARCH=arm64 go build -o bin/pvc-transfer-linux-arm64 ./cmd/pvc-transfer
+
+  build:darwin-arm64:
+    desc: Build binary for macOS arm64
+    cmds:
+      - mkdir -p bin
+      - GOOS=darwin GOARCH=arm64 go build -o bin/pvc-transfer-darwin-arm64 ./cmd/pvc-transfer
+
+  build:
+    desc: Build binaries for linux amd64/arm64 and mac arm64
+    cmds:
+      - task: build:linux-amd64
+      - task: build:linux-arm64
+      - task: build:darwin-arm64

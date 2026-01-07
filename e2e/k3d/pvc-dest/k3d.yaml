@@ -1,0 +1,32 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: pvc-dest
+servers: 1
+agents: 1
+network: pvc-transfer-net
+volumes:
+  - volume: ${PWD}/e2e/k3d/pvc-dest/manifests/:/var/lib/rancher/k3s/server/manifests/override
+    nodeFilters:
+      - server:0
+options:
+  k3d:
+    wait: true
+    timeout: "120s"
+    disableLoadbalancer: true
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:0
+      - arg: --kubelet-arg=eviction-hard=imagefs.available<2%,nodefs.available<2%
+        nodeFilters:
+          - server:0
+          - agent:0
+      - arg: --kubelet-arg=eviction-minimum-reclaim=imagefs.available=2%,nodefs.available=2%
+        nodeFilters:
+          - server:0
+          - agent:0
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false

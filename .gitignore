@@ -1,0 +1,16 @@
+# Binaries and build outputs
+bin/
+dist/
+
+# Local tooling
+.tmp/
+.npm/
+
+# Task/Go build cache (optional for cleanliness)
+*.log
+
+# Editor/OS
+.DS_Store
+.idea/
+*.swp
+*.swo

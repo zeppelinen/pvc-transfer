@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o dist/pvc-transfer-${{ matrix.os }}-${{ matrix.arch }} ./cmd/pvc-transfer
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvc-transfer-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/pvc-transfer-${{ matrix.os }}-${{ matrix.arch }}
+
+  release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Make binaries executable
+        run: chmod +x dist/**/pvc-transfer-*
+      - name: Flatten artifacts
+        run: |
+          mkdir -p uploads
+          find dist -type f -name "pvc-transfer-*" -exec mv {} uploads/ \;
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: uploads/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
