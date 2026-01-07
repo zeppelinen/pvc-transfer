@@ -74,6 +74,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	overrideCfg.S3.ObjectKey = "migrations/invalid-key.tar.gz"
 	overrideCfg.Source.PVCName = "invalid-source-pvc"
 	overrideCfg.Destination.PVCName = "invalid-dest-pvc"
+	overrideCfg.Source.Namespace = "invalid-source-ns"
+	overrideCfg.Destination.Namespace = "invalid-dest-ns"
 
 	data, err := yaml.Marshal(&overrideCfg)
 	if err != nil {
@@ -94,6 +96,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 		"--s3-object-key", overrideKey,
 		"--source-pvc", baseCfg.Source.PVCName,
 		"--dest-pvc", baseCfg.Destination.PVCName,
+		"--source-namespace", baseCfg.Source.Namespace,
+		"--dest-namespace", baseCfg.Destination.Namespace,
 		"--overwrite",
 	)
 	cmd.Dir = repoRoot
@@ -105,6 +109,55 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("cli override run failed: %v\noutput:\n%s", err, output.String())
+	}
+}
+
+func TestPVCTransferDefaultObjectKey(t *testing.T) {
+	configPath := os.Getenv("E2E_CONFIG")
+	if configPath == "" {
+		t.Skip("E2E_CONFIG not set; skipping e2e test")
+	}
+	path, err := filepath.Abs(configPath)
+	if err != nil {
+		t.Fatalf("resolve config path: %v", err)
+	}
+	resolveKubeconfigEnv(t, path)
+	logKubeconfigInfo(t)
+
+	baseCfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	baseCfg.S3.ObjectKey = ""
+	baseCfg.S3.ObjectKeyDerived = false
+
+	data, err := yaml.Marshal(&baseCfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+
+	tmpConfig := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(tmpConfig, data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	repoRoot := repoRootFromConfig(path)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/pvc-transfer",
+		"--config", tmpConfig,
+		"--overwrite",
+	)
+	cmd.Dir = repoRoot
+	cmd.Env = os.Environ()
+
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("default object key run failed: %v\noutput:\n%s", err, output.String())
 	}
 }
 

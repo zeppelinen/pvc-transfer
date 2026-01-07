@@ -21,6 +21,8 @@ func main() {
 		s3ObjectKey  string
 		sourcePVC    string
 		destPVC      string
+		sourceNS     string
+		destNS       string
 	)
 
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
@@ -29,6 +31,8 @@ func main() {
 	flag.StringVar(&s3ObjectKey, "s3-object-key", "", "Override S3 object key")
 	flag.StringVar(&sourcePVC, "source-pvc", "", "Override source PVC name")
 	flag.StringVar(&destPVC, "dest-pvc", "", "Override destination PVC name")
+	flag.StringVar(&sourceNS, "source-namespace", "", "Override source namespace")
+	flag.StringVar(&destNS, "dest-namespace", "", "Override destination namespace")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath)
@@ -36,20 +40,15 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	if s3ObjectKey != "" {
-		cfg.S3.ObjectKey = s3ObjectKey
-	}
-	if sourcePVC != "" {
-		cfg.Source.PVCName = sourcePVC
-	}
-	if destPVC != "" {
-		cfg.Destination.PVCName = destPVC
-	}
-	cfg.Overwrite = cfg.Overwrite || overwriteObj
-	if skipCleanup {
-		value := false
-		cfg.Cleanup = &value
-	}
+	applyOverrides(&cfg, overrides{
+		s3ObjectKey: s3ObjectKey,
+		sourcePVC:   sourcePVC,
+		destPVC:     destPVC,
+		sourceNS:    sourceNS,
+		destNS:      destNS,
+		overwrite:   overwriteObj,
+		noCleanup:   skipCleanup,
+	})
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("invalid config: %v", err)
@@ -67,4 +66,43 @@ func main() {
 	}
 
 	fmt.Println("PVC transfer completed successfully")
+}
+
+type overrides struct {
+	s3ObjectKey string
+	sourcePVC   string
+	destPVC     string
+	sourceNS    string
+	destNS      string
+	overwrite   bool
+	noCleanup   bool
+}
+
+func applyOverrides(cfg *config.Config, ov overrides) {
+	sourceChanged := false
+	if ov.sourcePVC != "" && ov.sourcePVC != cfg.Source.PVCName {
+		cfg.Source.PVCName = ov.sourcePVC
+		sourceChanged = true
+	}
+	if ov.sourceNS != "" && ov.sourceNS != cfg.Source.Namespace {
+		cfg.Source.Namespace = ov.sourceNS
+		sourceChanged = true
+	}
+	if ov.destPVC != "" {
+		cfg.Destination.PVCName = ov.destPVC
+	}
+	if ov.destNS != "" {
+		cfg.Destination.Namespace = ov.destNS
+	}
+	if ov.s3ObjectKey != "" {
+		cfg.S3.ObjectKey = ov.s3ObjectKey
+		cfg.S3.ObjectKeyDerived = false
+	} else if sourceChanged && cfg.S3.ObjectKeyDerived {
+		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, cfg.Source.PVCName)
+	}
+	cfg.Overwrite = cfg.Overwrite || ov.overwrite
+	if ov.noCleanup {
+		value := false
+		cfg.Cleanup = &value
+	}
 }

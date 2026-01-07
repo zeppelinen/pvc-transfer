@@ -54,7 +54,6 @@ version: "v1"
 s3:
   bucket: "b"
   region: "us-east-1"
-  objectKey: "obj"
 source:
   clusterContext: "c1"
   namespace: "default"
@@ -90,12 +89,15 @@ job:
 	if cfg.Cleanup == nil || !*cfg.Cleanup {
 		t.Fatalf("expected cleanup to default true")
 	}
+	if cfg.S3.ObjectKey != DefaultObjectKey("default", "pvc1") {
+		t.Fatalf("expected default object key, got %s", cfg.S3.ObjectKey)
+	}
 }
 
 func TestValidateFailsOnBadPVC(t *testing.T) {
 	cfg := Config{
 		Version: "v1",
-		S3:      S3Config{Bucket: "b", Region: "r", AccessKey: "a", SecretKey: "s", ObjectKey: "obj"},
+		S3:      S3Config{Bucket: "b", Region: "r", AccessKey: "a", SecretKey: "s"},
 		Source:  ClusterConfig{ClusterContext: "ctx", Namespace: "default", PVCName: "BAD*", MountPath: "/data"},
 		Destination: ClusterConfig{
 			ClusterContext: "ctx2", Namespace: "default", PVCName: "ok", MountPath: "/data",

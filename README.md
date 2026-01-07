@@ -53,19 +53,25 @@ job:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
   verifyMd5: true
+  keepIntermediateObject: false
 cleanup: true
 overwrite: false
+timeoutMinutes: 60
+retryBackoff:
+  attempts: 3
+  seconds: 5
 ```
 
 Environment overrides: `PVC_TRANSFER_S3_ACCESS_KEY`, `PVC_TRANSFER_S3_SECRET_KEY`, `PVC_TRANSFER_S3_ENDPOINT`. Use `s3.jobEndpoint` when the in-cluster URL differs from the local endpoint (e.g., MinIO on a Docker network).
 
 ## Usage
 
+Run with default settings:
 ```bash
-go run ./cmd/pvc-transfer --config ./config.yaml --overwrite
+go run ./cmd/pvc-transfer --config ./config.yaml
 ```
 
-Override S3 object key and PVC names from the command line:
+Override key settings from the command line:
 
 ```bash
 go run ./cmd/pvc-transfer \
@@ -73,7 +79,10 @@ go run ./cmd/pvc-transfer \
   --s3-object-key "migrations/custom-archive.tar.gz" \
   --source-pvc "data-pvc" \
   --dest-pvc "data-pvc-new" \
-  --overwrite
+  --source-namespace "production" \
+  --dest-namespace "staging" \
+  --overwrite \
+  --no-cleanup
 ```
 
 Requires kubeconfig contexts for both clusters. Jobs use the `serviceAccount` configured above; apply the manifests in `rbac/` (adjust namespace as needed) to grant permissions to create Jobs/Pods and stream logs.
