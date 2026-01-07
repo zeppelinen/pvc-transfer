@@ -24,13 +24,14 @@ type Config struct {
 
 // S3Config holds the bucket connectivity settings.
 type S3Config struct {
-	Bucket      string `yaml:"bucket"`
-	Region      string `yaml:"region"`
-	Endpoint    string `yaml:"endpoint"`
-	JobEndpoint string `yaml:"jobEndpoint"`
-	AccessKey   string `yaml:"accessKey"`
-	SecretKey   string `yaml:"secretKey"`
-	ObjectKey   string `yaml:"objectKey"`
+	Bucket           string `yaml:"bucket"`
+	Region           string `yaml:"region"`
+	Endpoint         string `yaml:"endpoint"`
+	JobEndpoint      string `yaml:"jobEndpoint"`
+	AccessKey        string `yaml:"accessKey"`
+	SecretKey        string `yaml:"secretKey"`
+	ObjectKey        string `yaml:"objectKey"`
+	ObjectKeyDerived bool   `yaml:"-"`
 }
 
 // ClusterConfig defines source/destination cluster inputs.
@@ -77,8 +78,8 @@ func (c Config) Validate() error {
 	if c.Version != "v1" {
 		return fmt.Errorf("unsupported version %q", c.Version)
 	}
-	if c.S3.Bucket == "" || c.S3.Region == "" || c.S3.ObjectKey == "" {
-		return errors.New("s3.bucket, s3.region and s3.objectKey are required")
+	if c.S3.Bucket == "" || c.S3.Region == "" {
+		return errors.New("s3.bucket and s3.region are required")
 	}
 	if c.S3.AccessKey == "" || c.S3.SecretKey == "" {
 		return errors.New("s3 accessKey/secretKey are required (or via env overrides)")
@@ -149,4 +150,15 @@ func (c *Config) setDefaults() {
 	if c.Job.ServiceAccount == "" {
 		c.Job.ServiceAccount = "pvc-transfer-sa"
 	}
+	if c.S3.ObjectKey == "" {
+		c.S3.ObjectKey = DefaultObjectKey(c.Source.Namespace, c.Source.PVCName)
+		c.S3.ObjectKeyDerived = true
+	} else {
+		c.S3.ObjectKeyDerived = false
+	}
+}
+
+// DefaultObjectKey builds a deterministic object key based on namespace and PVC.
+func DefaultObjectKey(namespace, pvc string) string {
+	return fmt.Sprintf("migrations/%s-%s.tar.gz", namespace, pvc)
 }
