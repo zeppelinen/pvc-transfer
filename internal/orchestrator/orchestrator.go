@@ -406,44 +406,62 @@ func waitForPod(ctx context.Context, client kubernetes.Interface, ns, jobName st
 }
 
 func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string, stop <-chan struct{}) {
-	req := client.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{Follow: true, TailLines: int64Ptr(20)})
-	for {
+	tail := int64(20)
+	opts := &corev1.PodLogOptions{Follow: true, TailLines: &tail}
+
+	stopCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
 		select {
 		case <-stop:
-			return
+			cancel()
+		case <-ctx.Done():
 		}
+	}()
 
-		stream, err := req.Stream(ctx)
+	for {
+		req := client.CoreV1().Pods(ns).GetLogs(pod, opts)
+		stream, err := req.Stream(stopCtx)
 		if err != nil {
 			log.Printf("log stream error for pod %s: %v; retrying in 1s", pod, err)
-			select {
-			case <-stop:
+			if waitOrStop(stopCtx, 1*time.Second) {
 				return
-			case <-ctx.Done():
-				return
-			case <-time.After(1 * time.Second):
+			}
+			continue
+		}
+		opts.TailLines = nil // avoid replaying history on subsequent retries
+		reader := bufio.NewScanner(stream)
+		reader.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+		for {
+			if reader.Scan() {
+				select {
+				case <-stopCtx.Done():
+					stream.Close()
+					return
+				default:
+				}
+				log.Printf("[%s] %s", pod, reader.Text())
 				continue
 			}
+			stream.Close()
+			if err := reader.Err(); err != nil && !errors.Is(err, io.EOF) {
+				log.Printf("log stream ended for pod %s: %v", pod, err)
+			}
+			break
 		}
 
-		reader := bufio.NewReader(stream)
-		for {
-			select {
-			case <-stop:
-				stream.Close()
-				return
-			default:
-				line, err := reader.ReadString('\n')
-				if err != nil {
-					stream.Close()
-					if err != io.EOF {
-						log.Printf("log stream ended: %v", err)
-					}
-					return
-				}
-				log.Printf("[%s] %s", pod, line)
-			}
+		if waitOrStop(stopCtx, 1*time.Second) {
+			return
 		}
+	}
+}
+
+func waitOrStop(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-time.After(d):
+		return false
 	}
 }
 
