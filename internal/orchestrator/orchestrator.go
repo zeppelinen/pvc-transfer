@@ -24,6 +24,8 @@ import (
 // Orchestrator manages the end-to-end transfer workflow.
 type Orchestrator struct{}
 
+const workerContainerName = "worker"
+
 // New constructs an orchestrator instance.
 func New() *Orchestrator {
 	return &Orchestrator{}
@@ -374,6 +376,15 @@ func monitorJob(ctx context.Context, client kubernetes.Interface, job *batchv1.J
 			if err != nil {
 				return fmt.Errorf("get job status: %w", err)
 			}
+			if term, err := workerTermination(ctx, client, job.Namespace, job.Name, workerContainerName); err == nil && term != nil {
+				if term.ExitCode == 0 {
+					log.Printf("%s job %s container %s completed", phase, job.Name, workerContainerName)
+					return nil
+				}
+				return fmt.Errorf("%s job %s failed: container %s exit %d (%s)", phase, job.Name, workerContainerName, term.ExitCode, term.Reason)
+			} else if err != nil {
+				log.Printf("warning: checking worker termination for job %s: %v", job.Name, err)
+			}
 			if status.Status.Succeeded > 0 {
 				log.Printf("%s job %s succeeded", phase, job.Name)
 				return nil
@@ -537,6 +548,24 @@ func containerDone(ctx context.Context, client kubernetes.Interface, ns, pod, co
 		}
 	}
 	return false, nil
+}
+
+func workerTermination(ctx context.Context, client kubernetes.Interface, ns, jobName, container string) (*corev1.ContainerStateTerminated, error) {
+	podList, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: fmt.Sprintf("job-name=%s", jobName)})
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range podList.Items {
+		for _, st := range append(p.Status.InitContainerStatuses, p.Status.ContainerStatuses...) {
+			if st.Name != container {
+				continue
+			}
+			if st.State.Terminated != nil {
+				return st.State.Terminated, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func cleanupJob(ctx context.Context, client kubernetes.Interface, job *batchv1.Job) error {
