@@ -35,6 +35,7 @@ job:
 	}
 	os.Setenv("PVC_TRANSFER_S3_ACCESS_KEY", "envKey")
 	os.Setenv("PVC_TRANSFER_S3_SECRET_KEY", "envSecret")
+	os.Setenv("PVC_TRANSFER_LOG_LEVEL", "debug")
 	defer os.Clearenv()
 
 	cfg, err := Load(path)
@@ -43,6 +44,9 @@ job:
 	}
 	if cfg.S3.AccessKey != "envKey" || cfg.S3.SecretKey != "envSecret" {
 		t.Fatalf("env overrides not applied: %+v", cfg.S3)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("expected log level override applied, got %s", cfg.LogLevel)
 	}
 }
 
@@ -92,6 +96,9 @@ job:
 	if cfg.S3.ObjectKey != DefaultObjectKey("default", "pvc1") {
 		t.Fatalf("expected default object key, got %s", cfg.S3.ObjectKey)
 	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
+	}
 }
 
 func TestValidateFailsOnBadPVC(t *testing.T) {
@@ -106,5 +113,21 @@ func TestValidateFailsOnBadPVC(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation failure")
+	}
+}
+
+func TestValidateRejectsBadLogLevel(t *testing.T) {
+	cfg := Config{
+		Version: "v1",
+		S3:      S3Config{Bucket: "b", Region: "r", AccessKey: "a", SecretKey: "s"},
+		Source:  ClusterConfig{ClusterContext: "ctx", Namespace: "default", PVCName: "pvc1", MountPath: "/data"},
+		Destination: ClusterConfig{
+			ClusterContext: "ctx2", Namespace: "default", PVCName: "pvc2", MountPath: "/data",
+		},
+		Job:      JobConfig{Image: "alpine", ServiceAccount: "sa"},
+		LogLevel: "loud",
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected invalid log level to fail validation")
 	}
 }

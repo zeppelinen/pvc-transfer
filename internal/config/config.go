@@ -16,6 +16,7 @@ type Config struct {
 	Source       ClusterConfig `yaml:"source"`
 	Destination  ClusterConfig `yaml:"destination"`
 	Job          JobConfig     `yaml:"job"`
+	LogLevel     string        `yaml:"logLevel"`
 	Cleanup      *bool         `yaml:"cleanup"`
 	Overwrite    bool          `yaml:"overwrite"`
 	TimeoutMins  int           `yaml:"timeoutMinutes"`
@@ -84,6 +85,9 @@ func (c Config) Validate() error {
 	if c.S3.AccessKey == "" || c.S3.SecretKey == "" {
 		return errors.New("s3 accessKey/secretKey are required (or via env overrides)")
 	}
+	if c.LogLevel != "" && c.LogLevel != "info" && c.LogLevel != "debug" {
+		return fmt.Errorf("logLevel must be one of [info, debug]")
+	}
 	for name, cluster := range map[string]ClusterConfig{"source": c.Source, "destination": c.Destination} {
 		if err := validateCluster(cluster); err != nil {
 			return fmt.Errorf("%s cluster invalid: %w", name, err)
@@ -116,6 +120,7 @@ func (c *Config) applyEnvOverrides() {
 	access := os.Getenv("PVC_TRANSFER_S3_ACCESS_KEY")
 	secret := os.Getenv("PVC_TRANSFER_S3_SECRET_KEY")
 	endpoint := os.Getenv("PVC_TRANSFER_S3_ENDPOINT")
+	logLevel := os.Getenv("PVC_TRANSFER_LOG_LEVEL")
 	if access != "" {
 		c.S3.AccessKey = access
 	}
@@ -124,6 +129,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if endpoint != "" {
 		c.S3.Endpoint = endpoint
+	}
+	if logLevel != "" {
+		c.LogLevel = logLevel
 	}
 }
 
@@ -155,6 +163,9 @@ func (c *Config) setDefaults() {
 		c.S3.ObjectKeyDerived = true
 	} else {
 		c.S3.ObjectKeyDerived = false
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = "info"
 	}
 }
 

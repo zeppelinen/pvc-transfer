@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/logging"
 	cfg "github.com/zeppelinen/pvc-transfer/internal/config"
 )
 
@@ -36,11 +38,27 @@ func New(ctx context.Context, c cfg.Config) (*Client, error) {
 			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 		})
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+	logMode := aws.ClientLogMode(0)
+	var logger logging.Logger = logging.Nop{}
+	if strings.EqualFold(c.LogLevel, "debug") {
+		logMode = aws.LogRequest | aws.LogResponse
+		logger = logging.LoggerFunc(func(classification logging.Classification, format string, args ...interface{}) {
+			if classification != "" {
+				format = string(classification) + " " + format
+			}
+			log.Printf(format, args...)
+		})
+	}
+	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(c.S3.Region),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.S3.AccessKey, c.S3.SecretKey, "")),
 		awsconfig.WithEndpointResolverWithOptions(resolver),
-	)
+		awsconfig.WithLogger(logger),
+	}
+	if logMode != 0 {
+		opts = append(opts, awsconfig.WithClientLogMode(logMode))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
