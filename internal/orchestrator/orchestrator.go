@@ -31,6 +31,11 @@ func New() *Orchestrator {
 
 // Run executes the transfer per configuration.
 func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
+	log.Printf("starting transfer: source %s/%s (cluster=%s) -> destination %s/%s (cluster=%s); object=%s; overwrite=%t",
+		cfg.Source.Namespace, cfg.Source.PVCName, cfg.Source.ClusterContext,
+		cfg.Destination.Namespace, cfg.Destination.PVCName, cfg.Destination.ClusterContext,
+		s3util.BuildObjectURL(cfg.S3.Endpoint, cfg.S3.Bucket, cfg.S3.ObjectKey), cfg.Overwrite)
+
 	s3Client, err := s3util.New(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("init s3 client: %w", err)
