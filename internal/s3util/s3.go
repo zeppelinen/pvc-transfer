@@ -62,36 +62,25 @@ func New(ctx context.Context, c cfg.Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Inner: s3.NewFromConfig(awsCfg)}, nil
+	return &Client{Inner: s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		// R2 requires path-style addressing when using account-level endpoints.
+		o.UsePathStyle = true
+	})}, nil
 }
 
 // VerifyBucket checks that the bucket is reachable.
 func (c *Client) VerifyBucket(ctx context.Context, bucket string) error {
-	_, err := c.Inner.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket})
-	if err == nil {
+	if _, err := c.Inner.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket}); err == nil {
 		return nil
-	}
-
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "Forbidden") {
-		// Some providers (e.g. Cloudflare R2 with bucket-scoped tokens) block HeadBucket.
-		// Fall back to a minimal write probe to confirm the bucket is reachable with the
-		// credentials we actually need for the transfer workflow.
-		key := fmt.Sprintf("pvc-transfer-probe-%d", time.Now().UnixNano())
-		_, putErr := c.Inner.PutObject(ctx, &s3.PutObjectInput{
-			Bucket: &bucket,
-			Key:    &key,
-			Body:   bytes.NewReader(nil),
-		})
-		if putErr == nil {
-			// Best-effort cleanup; ignore errors because the probe is harmless.
-			_, _ = c.Inner.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &bucket, Key: &key})
+	} else {
+		// Some providers (e.g. Cloudflare R2 with bucket-scoped tokens) block HeadBucket or
+		// return opaque 400/403 responses. Fall back to a minimal write probe to confirm access.
+		if probeErr := c.probeWrite(ctx, bucket); probeErr == nil {
 			return nil
+		} else {
+			return fmt.Errorf("head bucket failed: %w; probe write failed: %v", err, probeErr)
 		}
-		return fmt.Errorf("head bucket denied and probe write failed: %w", putErr)
 	}
-
-	return err
 }
 
 // ObjectExists returns true when the object is present in the bucket.
@@ -140,4 +129,23 @@ func BuildObjectURL(endpoint, bucket, key string) string {
 		return fmt.Sprintf("s3://%s/%s", bucket, key)
 	}
 	return fmt.Sprintf("%s/%s/%s", trimmed, bucket, url.PathEscape(key))
+}
+
+// probeWrite does a minimal write/delete to confirm access when HeadBucket fails (e.g., R2 bucket-scoped tokens).
+func (c *Client) probeWrite(ctx context.Context, bucket string) error {
+	key := fmt.Sprintf("pvc-transfer-probe-%d", time.Now().UnixNano())
+	_, putErr := c.Inner.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &bucket,
+		Key:    &key,
+		Body:   bytes.NewReader(nil),
+	})
+	if putErr == nil {
+		_, _ = c.Inner.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &bucket, Key: &key})
+		return nil
+	}
+	var apiErr smithy.APIError
+	if errors.As(putErr, &apiErr) && apiErr.ErrorCode() == "AccessDenied" {
+		return fmt.Errorf("write probe denied: %w", putErr)
+	}
+	return putErr
 }
