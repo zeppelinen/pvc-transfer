@@ -69,6 +69,12 @@ func TestBuildExportJob(t *testing.T) {
 	if !strings.Contains(cmd, "aws s3 cp - s3://bucket/obj.tar.gz") {
 		t.Fatalf("unexpected export command: %s", cmd)
 	}
+	if job.Spec.PodFailurePolicy == nil || len(job.Spec.PodFailurePolicy.Rules) == 0 {
+		t.Fatalf("expected pod failure policy configured")
+	}
+	if job.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *job.Spec.Template.Spec.TerminationGracePeriodSeconds != 30 {
+		t.Fatalf("expected grace period set")
+	}
 	env := job.Spec.Template.Spec.Containers[0].Env
 	foundEndpoint := false
 	for _, e := range env {

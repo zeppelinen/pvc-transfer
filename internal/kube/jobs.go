@@ -65,13 +65,26 @@ func buildJob(cfg config.Config, name, ns, pvcName, mountPath string, readOnly b
 		Spec: batchv1.JobSpec{
 			BackoffLimit:            &backoff,
 			TTLSecondsAfterFinished: &ttl,
+			PodFailurePolicy: &batchv1.PodFailurePolicy{
+				Rules: []batchv1.PodFailurePolicyRule{
+					{
+						Action: batchv1.PodFailurePolicyActionIgnore,
+						OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
+							ContainerName: func() *string { s := "worker"; return &s }(),
+							Operator:      batchv1.PodFailurePolicyOnExitCodesOpIn,
+							Values:        []int32{0},
+						},
+					},
+				},
+			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: serviceAccount,
-					RestartPolicy:      corev1.RestartPolicyNever,
+					TerminationGracePeriodSeconds: int64Ptr(30),
+					ServiceAccountName:            serviceAccount,
+					RestartPolicy:                 corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:    "worker",
@@ -118,3 +131,5 @@ aws s3 cp s3://%[2]s/%[3]s - | mbuffer -m 128M | tar -xvzf - -C %[1]s
 func SecretName(job string) string {
 	return fmt.Sprintf("%s-s3-credentials", job)
 }
+
+func int64Ptr(i int64) *int64 { return &i }
