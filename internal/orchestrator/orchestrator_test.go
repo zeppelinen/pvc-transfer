@@ -1,6 +1,9 @@
 package orchestrator
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestResolveServiceAccount(t *testing.T) {
 	name, err := resolveServiceAccount("sa", "ns")
@@ -19,5 +22,16 @@ func TestResolveServiceAccount(t *testing.T) {
 
 	if _, err := resolveServiceAccount("bad/format/extra", "ns"); err == nil {
 		t.Fatalf("expected invalid format to error")
+	}
+}
+
+func TestContainerFromErrorSelectsWorker(t *testing.T) {
+	err := fmt.Errorf("a container name must be specified for pod foo, choose one of: [istio-init istio-proxy worker]")
+	if c, ok := containerFromError(err, "worker"); !ok || c != "worker" {
+		t.Fatalf("expected to pick worker, got %s ok=%v", c, ok)
+	}
+	err = fmt.Errorf("a container name must be specified for pod foo, choose one of: [sidecar main]")
+	if c, ok := containerFromError(err, "worker"); !ok || c != "main" {
+		t.Fatalf("expected to pick preferred main, got %s ok=%v", c, ok)
 	}
 }

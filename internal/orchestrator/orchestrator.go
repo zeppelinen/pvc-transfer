@@ -407,7 +407,8 @@ func waitForPod(ctx context.Context, client kubernetes.Interface, ns, jobName st
 
 func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string, stop <-chan struct{}) {
 	tail := int64(20)
-	opts := &corev1.PodLogOptions{Follow: true, TailLines: &tail, Container: "worker"}
+	container := "worker"
+	opts := &corev1.PodLogOptions{Follow: true, TailLines: &tail, Container: container}
 
 	stopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -423,6 +424,12 @@ func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string
 		req := client.CoreV1().Pods(ns).GetLogs(pod, opts)
 		stream, err := req.Stream(stopCtx)
 		if err != nil {
+			if c, ok := containerFromError(err, container); ok {
+				container = c
+				opts.Container = container
+				log.Printf("log stream error for pod %s: %v; selecting container %s", pod, err, container)
+				continue
+			}
 			log.Printf("log stream error for pod %s: %v; retrying in 1s", pod, err)
 			if waitOrStop(stopCtx, 1*time.Second) {
 				return
@@ -463,6 +470,42 @@ func waitOrStop(ctx context.Context, d time.Duration) bool {
 	case <-time.After(d):
 		return false
 	}
+}
+
+func containerFromError(err error, current string) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "choose one of:") {
+		return "", false
+	}
+	start := strings.Index(msg, "[")
+	end := strings.Index(msg, "]")
+	if start == -1 || end == -1 || end <= start {
+		return "", false
+	}
+	trimmed := strings.TrimSpace(msg[start+1 : end])
+	if trimmed == "" {
+		return "", false
+	}
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return "", false
+	}
+	for _, p := range parts {
+		if p == current {
+			return current, true
+		}
+	}
+	for _, preferred := range []string{"worker", "main"} {
+		for _, p := range parts {
+			if p == preferred {
+				return p, true
+			}
+		}
+	}
+	return parts[0], true
 }
 
 func cleanupJob(ctx context.Context, client kubernetes.Interface, job *batchv1.Job) error {
