@@ -1,6 +1,7 @@
 package s3util
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,6 +50,29 @@ func New(ctx context.Context, c cfg.Config) (*Client, error) {
 // VerifyBucket checks that the bucket is reachable.
 func (c *Client) VerifyBucket(ctx context.Context, bucket string) error {
 	_, err := c.Inner.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket})
+	if err == nil {
+		return nil
+	}
+
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "Forbidden") {
+		// Some providers (e.g. Cloudflare R2 with bucket-scoped tokens) block HeadBucket.
+		// Fall back to a minimal write probe to confirm the bucket is reachable with the
+		// credentials we actually need for the transfer workflow.
+		key := fmt.Sprintf("pvc-transfer-probe-%d", time.Now().UnixNano())
+		_, putErr := c.Inner.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: &bucket,
+			Key:    &key,
+			Body:   bytes.NewReader(nil),
+		})
+		if putErr == nil {
+			// Best-effort cleanup; ignore errors because the probe is harmless.
+			_, _ = c.Inner.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &bucket, Key: &key})
+			return nil
+		}
+		return fmt.Errorf("head bucket denied and probe write failed: %w", putErr)
+	}
+
 	return err
 }
 

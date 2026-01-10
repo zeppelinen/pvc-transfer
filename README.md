@@ -64,6 +64,14 @@ retryBackoff:
 
 Environment overrides: `PVC_TRANSFER_S3_ACCESS_KEY`, `PVC_TRANSFER_S3_SECRET_KEY`, `PVC_TRANSFER_S3_ENDPOINT`. Use `s3.jobEndpoint` when the in-cluster URL differs from the local endpoint (e.g., MinIO on a Docker network).
 
+| Variable | Description |
+|---|---|
+| `PVC_TRANSFER_S3_ACCESS_KEY` | Overrides the S3 access key (`s3.accessKey`) |
+| `PVC_TRANSFER_S3_SECRET_KEY` | Overrides the S3 secret key (`s3.secretKey`) |
+| `PVC_TRANSFER_S3_ENDPOINT` | Overrides the S3 endpoint (`s3.endpoint`) |
+| `KUBECONFIG` | Standard Kubernetes environment variable for specifying the kubeconfig file path. |
+
+
 ## Usage
 
 Run with default settings:
