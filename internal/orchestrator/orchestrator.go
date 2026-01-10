@@ -407,7 +407,7 @@ func waitForPod(ctx context.Context, client kubernetes.Interface, ns, jobName st
 
 func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string, stop <-chan struct{}) {
 	tail := int64(20)
-	opts := &corev1.PodLogOptions{Follow: true, TailLines: &tail}
+	opts := &corev1.PodLogOptions{Follow: true, TailLines: &tail, Container: "worker"}
 
 	stopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
