@@ -42,7 +42,7 @@ func baseConfig() config.Config {
 
 func TestBuildImportJob(t *testing.T) {
 	cfg := baseConfig()
-	job := BuildImportJob(cfg, "import", "default")
+	job := BuildImportJob(cfg, "import", "default", cfg.Job.ServiceAccount)
 	if job.Spec.Template.Spec.Containers[0].VolumeMounts[0].ReadOnly {
 		t.Fatalf("import job should mount PVC writable")
 	}
@@ -60,9 +60,10 @@ func TestSecretNameDeterministic(t *testing.T) {
 
 func TestBuildExportJob(t *testing.T) {
 	cfg := baseConfig()
-	job := BuildExportJob(cfg, "export", "default")
-	if job.Spec.Template.Spec.ServiceAccountName != cfg.Job.ServiceAccount {
-		t.Fatalf("expected service account %s", cfg.Job.ServiceAccount)
+	customSA := "custom-sa"
+	job := BuildExportJob(cfg, "export", "default", customSA)
+	if job.Spec.Template.Spec.ServiceAccountName != customSA {
+		t.Fatalf("expected service account %s", customSA)
 	}
 	cmd := strings.Join(job.Spec.Template.Spec.Containers[0].Command, " ")
 	if !strings.Contains(cmd, "aws s3 cp - s3://bucket/obj.tar.gz") {

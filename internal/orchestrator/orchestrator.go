@@ -3,9 +3,11 @@ package orchestrator
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/zeppelinen/pvc-transfer/internal/config"
@@ -40,6 +42,15 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("bucket verification failed: %w", err)
 	}
 
+	sourceSA, err := resolveServiceAccount(cfg.Job.ServiceAccount, cfg.Source.Namespace)
+	if err != nil {
+		return err
+	}
+	destSA, err := resolveServiceAccount(cfg.Job.ServiceAccount, cfg.Destination.Namespace)
+	if err != nil {
+		return err
+	}
+
 	exists, err := s3Client.ObjectExists(ctx, cfg.S3.Bucket, cfg.S3.ObjectKey)
 	if err != nil {
 		return fmt.Errorf("check object existence: %w", err)
@@ -63,10 +74,10 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 	if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
 		return err
 	}
-	if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, cfg.Job.ServiceAccount); err != nil {
+	if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, sourceSA); err != nil {
 		return err
 	}
-	if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, cfg.Job.ServiceAccount); err != nil {
+	if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, destSA); err != nil {
 		return err
 	}
 
@@ -81,7 +92,7 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 
-	exportJob := kube.BuildExportJob(cfg, exportJobName, cfg.Source.Namespace)
+	exportJob := kube.BuildExportJob(cfg, exportJobName, cfg.Source.Namespace, sourceSA)
 	if err := applyJob(ctx, sourceClient, exportJob); err != nil {
 		return fmt.Errorf("create export job: %w", err)
 	}
@@ -90,7 +101,7 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 
-	importJob := kube.BuildImportJob(cfg, importJobName, cfg.Destination.Namespace)
+	importJob := kube.BuildImportJob(cfg, importJobName, cfg.Destination.Namespace, destSA)
 	if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(importJobName), cfg); err != nil {
 		return err
 	}
@@ -103,7 +114,7 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 	}
 
 	if cfg.Job.VerifyMd5 {
-		verifyJob := kube.BuildVerifyJob(cfg, verifyJobName, cfg.Destination.Namespace)
+		verifyJob := kube.BuildVerifyJob(cfg, verifyJobName, cfg.Destination.Namespace, destSA)
 		if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(verifyJobName), cfg); err != nil {
 			return err
 		}
@@ -157,6 +168,24 @@ func ensureServiceAccount(ctx context.Context, client kubernetes.Interface, ns, 
 		return fmt.Errorf("serviceaccount %s/%s not found: %w", ns, name, err)
 	}
 	return nil
+}
+
+// resolveServiceAccount accepts either "name" or "namespace/name" and returns the name scoped to the provided namespace.
+func resolveServiceAccount(sa, ns string) (string, error) {
+	if sa == "" {
+		return "", errors.New("serviceAccount is required")
+	}
+	parts := strings.Split(sa, "/")
+	if len(parts) == 1 {
+		return sa, nil
+	}
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		if parts[0] != ns {
+			return "", fmt.Errorf("serviceAccount namespace %q must match job namespace %q", parts[0], ns)
+		}
+		return parts[1], nil
+	}
+	return "", fmt.Errorf("serviceAccount %q must be in form name or namespace/name", sa)
 }
 
 func prepareSecret(ctx context.Context, client kubernetes.Interface, ns, name string, cfg config.Config) error {

@@ -10,17 +10,17 @@ import (
 )
 
 // BuildExportJob defines the Job spec that streams PVC contents to S3.
-func BuildExportJob(cfg config.Config, name string, ns string) *batchv1.Job {
-	return buildJob(cfg, name, ns, cfg.Source.PVCName, cfg.Source.MountPath, true, exportCommand(cfg))
+func BuildExportJob(cfg config.Config, name string, ns string, serviceAccount string) *batchv1.Job {
+	return buildJob(cfg, name, ns, cfg.Source.PVCName, cfg.Source.MountPath, true, serviceAccount, exportCommand(cfg))
 }
 
 // BuildImportJob defines the Job spec that restores PVC contents from S3.
-func BuildImportJob(cfg config.Config, name string, ns string) *batchv1.Job {
-	return buildJob(cfg, name, ns, cfg.Destination.PVCName, cfg.Destination.MountPath, false, importCommand(cfg))
+func BuildImportJob(cfg config.Config, name string, ns string, serviceAccount string) *batchv1.Job {
+	return buildJob(cfg, name, ns, cfg.Destination.PVCName, cfg.Destination.MountPath, false, serviceAccount, importCommand(cfg))
 }
 
 // BuildVerifyJob creates a verification job to compare MD5 hashes between S3 object and destination PVC.
-func BuildVerifyJob(cfg config.Config, name string, ns string) *batchv1.Job {
+func BuildVerifyJob(cfg config.Config, name string, ns string, serviceAccount string) *batchv1.Job {
 	command := []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(`
@@ -31,10 +31,10 @@ echo "DEST_MD5=$dest" && echo "S3_MD5=$s3" &&
 if [ "$dest" = "$s3" ]; then echo "MD5_MATCH"; else echo "MD5_MISMATCH"; exit 1; fi
 `, cfg.Destination.MountPath, cfg.S3.Bucket, cfg.S3.ObjectKey),
 	}
-	return buildJob(cfg, name, ns, cfg.Destination.PVCName, cfg.Destination.MountPath, false, command)
+	return buildJob(cfg, name, ns, cfg.Destination.PVCName, cfg.Destination.MountPath, false, serviceAccount, command)
 }
 
-func buildJob(cfg config.Config, name, ns, pvcName, mountPath string, readOnly bool, command []string) *batchv1.Job {
+func buildJob(cfg config.Config, name, ns, pvcName, mountPath string, readOnly bool, serviceAccount string, command []string) *batchv1.Job {
 	labels := map[string]string{
 		"app":   "pvc-transfer",
 		"job":   name,
@@ -70,7 +70,7 @@ func buildJob(cfg config.Config, name, ns, pvcName, mountPath string, readOnly b
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: cfg.Job.ServiceAccount,
+					ServiceAccountName: serviceAccount,
 					RestartPolicy:      corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{

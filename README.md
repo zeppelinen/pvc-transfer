@@ -49,7 +49,7 @@ destination:
   mountPath: "/data"
 job:
   image: "alpine:3.19"
-  serviceAccount: "pvc-transfer-sa"
+  serviceAccount: "pvc-transfer-sa" # also accepts "namespace/account"
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
   verifyMd5: true
