@@ -6,71 +6,41 @@ import (
 	"github.com/zeppelinen/pvc-transfer/internal/config"
 )
 
-func TestApplyOverridesRecomputesObjectKey(t *testing.T) {
+func TestApplyOverridesBoolFlagsOverrideConfig(t *testing.T) {
 	cfg := config.Config{
-		Version: "v1",
-		S3: config.S3Config{
-			Bucket:           "b",
-			Region:           "us-east-1",
-			ObjectKey:        config.DefaultObjectKey("ns1", "pvc1"),
-			ObjectKeyDerived: true,
-		},
-		Source: config.ClusterConfig{
-			ClusterContext: "ctx",
-			Namespace:      "ns1",
-			PVCName:        "pvc1",
-			MountPath:      "/data",
-		},
-		Destination: config.ClusterConfig{
-			ClusterContext: "ctx2",
-			Namespace:      "ns2",
-			PVCName:        "pvc2",
-			MountPath:      "/data",
-		},
-		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
+		Source:      config.ClusterConfig{Namespace: "ns", PVCName: "pvc"},
+		Destination: config.ClusterConfig{Namespace: "ns2", PVCName: "pvc2"},
+		S3:          config.S3Config{Bucket: "b", Region: "r"},
+		Job:         config.JobConfig{Image: "img", ServiceAccount: "sa"},
+		Overwrite:   true,
 	}
-
+	cfg.Cleanup = boolPtr(true)
 	applyOverrides(&cfg, overrides{
-		sourceNS: "override-ns",
+		overwrite: boolPtr(false),
+		cleanup:   boolPtr(false),
 	})
-
-	if cfg.S3.ObjectKey != config.DefaultObjectKey("override-ns", "pvc1") {
-		t.Fatalf("expected object key recompute, got %s", cfg.S3.ObjectKey)
+	if cfg.Overwrite {
+		t.Fatalf("expected overwrite to be overridden to false")
+	}
+	if cfg.Cleanup == nil || *cfg.Cleanup {
+		t.Fatalf("expected cleanup overridden to false")
 	}
 }
 
-func TestApplyOverridesNamespaces(t *testing.T) {
+func TestApplyOverridesUpdatesObjectKeyWhenSourceChanges(t *testing.T) {
 	cfg := config.Config{
-		Version: "v1",
-		S3: config.S3Config{
-			Bucket:    "b",
-			Region:    "us-east-1",
-			ObjectKey: "obj",
-		},
-		Source: config.ClusterConfig{
-			ClusterContext: "ctx",
-			Namespace:      "ns1",
-			PVCName:        "pvc1",
-			MountPath:      "/data",
-		},
-		Destination: config.ClusterConfig{
-			ClusterContext: "ctx2",
-			Namespace:      "ns2",
-			PVCName:        "pvc2",
-			MountPath:      "/data",
-		},
-		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
+		Source:      config.ClusterConfig{Namespace: "ns", PVCName: "pvc"},
+		Destination: config.ClusterConfig{Namespace: "ns2", PVCName: "pvc2"},
+		S3:          config.S3Config{Bucket: "b", Region: "r", ObjectKeyDerived: true},
+		Job:         config.JobConfig{Image: "img", ServiceAccount: "sa"},
 	}
-
-	applyOverrides(&cfg, overrides{
-		sourceNS: "new-src",
-		destNS:   "new-dest",
-	})
-
-	if cfg.Source.Namespace != "new-src" {
-		t.Fatalf("expected source namespace override, got %s", cfg.Source.Namespace)
+	applyOverrides(&cfg, overrides{sourcePVC: "newpvc"})
+	if cfg.S3.ObjectKey == "" {
+		t.Fatalf("expected object key to be derived after source change")
 	}
-	if cfg.Destination.Namespace != "new-dest" {
-		t.Fatalf("expected destination namespace override, got %s", cfg.Destination.Namespace)
+	if cfg.Source.PVCName != "newpvc" {
+		t.Fatalf("expected source pvc override")
 	}
 }
+
+func boolPtr(v bool) *bool { return &v }

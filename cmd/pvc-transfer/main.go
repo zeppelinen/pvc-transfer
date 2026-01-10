@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -16,18 +17,18 @@ import (
 func main() {
 	var (
 		configPath   string
-		overwriteObj bool
-		skipCleanup  bool
 		s3ObjectKey  string
 		sourcePVC    string
 		destPVC      string
 		sourceNS     string
 		destNS       string
+		overwriteObj boolFlag
+		skipCleanup  boolFlag
 	)
 
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
-	flag.BoolVar(&overwriteObj, "overwrite", false, "Allow overwriting existing S3 object")
-	flag.BoolVar(&skipCleanup, "no-cleanup", false, "Skip cleanup of Jobs/S3 object")
+	flag.Var(&overwriteObj, "overwrite", "Allow overwriting existing S3 object")
+	flag.Var(&skipCleanup, "no-cleanup", "Skip cleanup of Jobs/S3 object")
 	flag.StringVar(&s3ObjectKey, "s3-object-key", "", "Override S3 object key")
 	flag.StringVar(&sourcePVC, "source-pvc", "", "Override source PVC name")
 	flag.StringVar(&destPVC, "dest-pvc", "", "Override destination PVC name")
@@ -46,9 +47,14 @@ func main() {
 		destPVC:     destPVC,
 		sourceNS:    sourceNS,
 		destNS:      destNS,
-		overwrite:   overwriteObj,
-		noCleanup:   skipCleanup,
 	})
+	if overwriteObj.set {
+		applyOverrides(&cfg, overrides{overwrite: &overwriteObj.value})
+	}
+	if skipCleanup.set {
+		cleanup := !skipCleanup.value
+		applyOverrides(&cfg, overrides{cleanup: &cleanup})
+	}
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("invalid config: %v", err)
@@ -74,8 +80,8 @@ type overrides struct {
 	destPVC     string
 	sourceNS    string
 	destNS      string
-	overwrite   bool
-	noCleanup   bool
+	overwrite   *bool
+	cleanup     *bool
 }
 
 func applyOverrides(cfg *config.Config, ov overrides) {
@@ -100,9 +106,32 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 	} else if sourceChanged && cfg.S3.ObjectKeyDerived {
 		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, cfg.Source.PVCName)
 	}
-	cfg.Overwrite = cfg.Overwrite || ov.overwrite
-	if ov.noCleanup {
-		value := false
-		cfg.Cleanup = &value
+	if ov.overwrite != nil {
+		cfg.Overwrite = *ov.overwrite
+	}
+	if ov.cleanup != nil {
+		cfg.Cleanup = ov.cleanup
 	}
 }
+
+// boolFlag tracks whether a bool flag was explicitly set.
+type boolFlag struct {
+	set   bool
+	value bool
+}
+
+func (b *boolFlag) String() string {
+	return strconv.FormatBool(b.value)
+}
+
+func (b *boolFlag) Set(s string) error {
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return err
+	}
+	b.value = v
+	b.set = true
+	return nil
+}
+
+func (b *boolFlag) IsBoolFlag() bool { return true }
