@@ -99,6 +99,12 @@ job:
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
 	}
+	if cfg.RBAC.AutoCreate {
+		t.Fatalf("expected RBAC autoCreate default false")
+	}
+	if cfg.RBAC.Cleanup == nil || !*cfg.RBAC.Cleanup {
+		t.Fatalf("expected RBAC cleanup default true, got %v", cfg.RBAC.Cleanup)
+	}
 }
 
 func TestValidateFailsOnBadPVC(t *testing.T) {
@@ -131,3 +137,22 @@ func TestValidateRejectsBadLogLevel(t *testing.T) {
 		t.Fatalf("expected invalid log level to fail validation")
 	}
 }
+
+func TestRBACConfigDefaultsRespectExplicitCleanupFalse(t *testing.T) {
+	cfg := Config{
+		Version: "v1",
+		S3:      S3Config{Bucket: "b", Region: "r", AccessKey: "a", SecretKey: "s"},
+		Source:  ClusterConfig{ClusterContext: "ctx", Namespace: "default", PVCName: "pvc1", MountPath: "/data"},
+		Destination: ClusterConfig{
+			ClusterContext: "ctx2", Namespace: "default", PVCName: "pvc2", MountPath: "/data",
+		},
+		Job:  JobConfig{Image: "alpine", ServiceAccount: "sa"},
+		RBAC: RBACConfig{AutoCreate: true, Cleanup: boolPtr(false)},
+	}
+	cfg.setDefaults()
+	if cfg.RBAC.Cleanup == nil || *cfg.RBAC.Cleanup {
+		t.Fatalf("expected cleanup to remain false when explicitly set")
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

@@ -16,6 +16,7 @@ type Config struct {
 	Source       ClusterConfig `yaml:"source"`
 	Destination  ClusterConfig `yaml:"destination"`
 	Job          JobConfig     `yaml:"job"`
+	RBAC         RBACConfig    `yaml:"rbac"`
 	LogLevel     string        `yaml:"logLevel"`
 	Cleanup      *bool         `yaml:"cleanup"`
 	Overwrite    bool          `yaml:"overwrite"`
@@ -51,6 +52,12 @@ type JobConfig struct {
 	TTLSecondsAfterFinish  int32  `yaml:"ttlSecondsAfterFinished"`
 	VerifyMd5              bool   `yaml:"verifyMd5"`
 	KeepIntermediateObject bool   `yaml:"keepIntermediateObject"`
+}
+
+// RBACConfig controls automatic RBAC resource management.
+type RBACConfig struct {
+	AutoCreate bool  `yaml:"autoCreate"`
+	Cleanup    *bool `yaml:"cleanup"`
 }
 
 // RetryBackoff controls retry behavior for transient S3 errors.
@@ -166,6 +173,10 @@ func (c *Config) setDefaults() {
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
+	}
+	if c.RBAC.Cleanup == nil {
+		def := true
+		c.RBAC.Cleanup = &def
 	}
 }
 

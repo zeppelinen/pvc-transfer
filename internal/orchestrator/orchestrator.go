@@ -15,6 +15,7 @@ import (
 	"github.com/zeppelinen/pvc-transfer/internal/s3util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -74,11 +75,24 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 	if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
 		return err
 	}
-	if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, sourceSA); err != nil {
-		return err
-	}
-	if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, destSA); err != nil {
-		return err
+
+	var srcRBAC, dstRBAC *rbacResources
+	if cfg.RBAC.AutoCreate {
+		srcRBAC, err = ensureRBAC(ctx, sourceClient, cfg.Source.Namespace, sourceSA)
+		if err != nil {
+			return err
+		}
+		dstRBAC, err = ensureRBAC(ctx, destClient, cfg.Destination.Namespace, destSA)
+		if err != nil {
+			return err
+		}
+	} else {
+		if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, sourceSA); err != nil {
+			return err
+		}
+		if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, destSA); err != nil {
+			return err
+		}
 	}
 
 	exportJobName := "pvc-transfer-export"
@@ -151,6 +165,15 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 		}
 	}
 
+	if cfg.RBAC.AutoCreate && cfg.RBAC.Cleanup != nil && *cfg.RBAC.Cleanup {
+		if err := cleanupRBAC(ctx, sourceClient, srcRBAC); err != nil {
+			log.Printf("cleanup source RBAC failed: %v", err)
+		}
+		if err := cleanupRBAC(ctx, destClient, dstRBAC); err != nil {
+			log.Printf("cleanup destination RBAC failed: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -186,6 +209,105 @@ func resolveServiceAccount(sa, ns string) (string, error) {
 		return parts[1], nil
 	}
 	return "", fmt.Errorf("serviceAccount %q must be in form name or namespace/name", sa)
+}
+
+type rbacResources struct {
+	namespace             string
+	serviceAccount        string
+	clusterRole           string
+	clusterRoleBinding    string
+	createdServiceAccount bool
+	createdRole           bool
+	createdBinding        bool
+}
+
+func ensureRBAC(ctx context.Context, client kubernetes.Interface, ns, sa string) (*rbacResources, error) {
+	res := &rbacResources{namespace: ns, serviceAccount: sa}
+
+	if _, err := client.CoreV1().ServiceAccounts(ns).Get(ctx, sa, metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			_, createErr := client.CoreV1().ServiceAccounts(ns).Create(ctx, &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      sa,
+					Namespace: ns,
+				},
+			}, metav1.CreateOptions{})
+			if createErr != nil {
+				return nil, fmt.Errorf("create serviceaccount %s/%s: %w", ns, sa, createErr)
+			}
+			res.createdServiceAccount = true
+		} else {
+			return nil, fmt.Errorf("get serviceaccount %s/%s: %w", ns, sa, err)
+		}
+	}
+
+	roleName := fmt.Sprintf("pvc-transfer-%s-role", ns)
+	res.clusterRole = roleName
+	if _, err := client.RbacV1().ClusterRoles().Get(ctx, roleName, metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			_, createErr := client.RbacV1().ClusterRoles().Create(ctx, &rbacv1.ClusterRole{
+				ObjectMeta: metav1.ObjectMeta{Name: roleName},
+				Rules: []rbacv1.PolicyRule{
+					{APIGroups: []string{""}, Resources: []string{"pods", "pods/log", "persistentvolumeclaims"}, Verbs: []string{"get", "list", "watch", "create", "delete"}},
+					{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get", "list", "watch", "create", "delete"}},
+				},
+			}, metav1.CreateOptions{})
+			if createErr != nil {
+				return nil, fmt.Errorf("create clusterrole %s: %w", roleName, createErr)
+			}
+			res.createdRole = true
+		} else {
+			return nil, fmt.Errorf("get clusterrole %s: %w", roleName, err)
+		}
+	}
+
+	bindingName := fmt.Sprintf("pvc-transfer-%s-binding", ns)
+	res.clusterRoleBinding = bindingName
+	if _, err := client.RbacV1().ClusterRoleBindings().Get(ctx, bindingName, metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			_, createErr := client.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: bindingName},
+				RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
+				Subjects: []rbacv1.Subject{
+					{Kind: "ServiceAccount", Name: sa, Namespace: ns},
+				},
+			}, metav1.CreateOptions{})
+			if createErr != nil {
+				return nil, fmt.Errorf("create clusterrolebinding %s: %w", bindingName, createErr)
+			}
+			res.createdBinding = true
+		} else {
+			return nil, fmt.Errorf("get clusterrolebinding %s: %w", bindingName, err)
+		}
+	}
+
+	return res, nil
+}
+
+func cleanupRBAC(ctx context.Context, client kubernetes.Interface, res *rbacResources) error {
+	if res == nil {
+		return nil
+	}
+	var errs []string
+	if res.createdBinding {
+		if err := client.RbacV1().ClusterRoleBindings().Delete(ctx, res.clusterRoleBinding, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("delete binding %s: %v", res.clusterRoleBinding, err))
+		}
+	}
+	if res.createdRole {
+		if err := client.RbacV1().ClusterRoles().Delete(ctx, res.clusterRole, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("delete role %s: %v", res.clusterRole, err))
+		}
+	}
+	if res.createdServiceAccount {
+		if err := client.CoreV1().ServiceAccounts(res.namespace).Delete(ctx, res.serviceAccount, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("delete serviceaccount %s/%s: %v", res.namespace, res.serviceAccount, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("rbac cleanup errors: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 func prepareSecret(ctx context.Context, client kubernetes.Interface, ns, name string, cfg config.Config) error {

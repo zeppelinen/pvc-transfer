@@ -54,6 +54,9 @@ job:
   ttlSecondsAfterFinished: 3600
   verifyMd5: true
   keepIntermediateObject: false
+rbac:
+  autoCreate: false # create RBAC resources in each cluster if missing
+  cleanup: true    # delete auto-created RBAC resources after completion
 logLevel: "info" # info|debug
 cleanup: true
 overwrite: false
