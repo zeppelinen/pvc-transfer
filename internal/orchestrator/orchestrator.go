@@ -402,26 +402,42 @@ func waitForPod(ctx context.Context, client kubernetes.Interface, ns, jobName st
 
 func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string, stop <-chan struct{}) {
 	req := client.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{Follow: true, TailLines: int64Ptr(20)})
-	stream, err := req.Stream(ctx)
-	if err != nil {
-		log.Printf("log stream error for pod %s: %v", pod, err)
-		return
-	}
-	defer stream.Close()
-	reader := bufio.NewReader(stream)
 	for {
 		select {
 		case <-stop:
 			return
-		default:
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err != io.EOF {
-					log.Printf("log stream ended: %v", err)
-				}
+		}
+
+		stream, err := req.Stream(ctx)
+		if err != nil {
+			log.Printf("log stream error for pod %s: %v; retrying in 1s", pod, err)
+			select {
+			case <-stop:
 				return
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				continue
 			}
-			log.Printf("[%s] %s", pod, line)
+		}
+
+		reader := bufio.NewReader(stream)
+		for {
+			select {
+			case <-stop:
+				stream.Close()
+				return
+			default:
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					stream.Close()
+					if err != io.EOF {
+						log.Printf("log stream ended: %v", err)
+					}
+					return
+				}
+				log.Printf("[%s] %s", pod, line)
+			}
 		}
 	}
 }
