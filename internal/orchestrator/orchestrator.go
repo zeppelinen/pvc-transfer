@@ -454,6 +454,15 @@ func streamLogs(ctx context.Context, client kubernetes.Interface, ns, pod string
 			if err := reader.Err(); err != nil && !errors.Is(err, io.EOF) {
 				log.Printf("log stream ended for pod %s: %v", pod, err)
 			}
+
+			done, statusErr := containerDone(stopCtx, client, ns, pod, container)
+			if statusErr != nil {
+				log.Printf("log stream status check failed for pod %s: %v", pod, statusErr)
+			}
+			if done {
+				return
+			}
+
 			break
 		}
 
@@ -506,6 +515,28 @@ func containerFromError(err error, current string) (string, bool) {
 		}
 	}
 	return parts[0], true
+}
+
+func containerDone(ctx context.Context, client kubernetes.Interface, ns, pod, container string) (bool, error) {
+	p, err := client.CoreV1().Pods(ns).Get(ctx, pod, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+		return true, nil
+	}
+	for _, st := range append(p.Status.InitContainerStatuses, p.Status.ContainerStatuses...) {
+		if st.Name != container {
+			continue
+		}
+		if st.State.Terminated != nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func cleanupJob(ctx context.Context, client kubernetes.Interface, job *batchv1.Job) error {
