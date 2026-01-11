@@ -177,12 +177,12 @@ func generateProbeKey() (string, error) {
 		return "", err
 	}
 	randomHex := hex.EncodeToString(randomBytes)
-	
+
 	// Include process ID to prevent collisions from concurrent processes.
 	pid := os.Getpid()
-	
+
 	// Include nanosecond timestamp for temporal uniqueness.
 	timestamp := time.Now().UnixNano()
-	
+
 	return fmt.Sprintf("pvc-transfer-probe-%d-%d-%s", timestamp, pid, randomHex), nil
 }

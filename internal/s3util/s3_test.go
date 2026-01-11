@@ -64,10 +64,10 @@ func TestGenerateProbeKeyConcurrency(t *testing.T) {
 	// Test concurrent key generation to ensure no collisions
 	const goroutines = 100
 	const keysPerGoroutine = 100
-	
+
 	keys := make(chan string, goroutines*keysPerGoroutine)
 	var wg sync.WaitGroup
-	
+
 	// Launch multiple goroutines generating keys concurrently
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
@@ -83,10 +83,10 @@ func TestGenerateProbeKeyConcurrency(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 	close(keys)
-	
+
 	// Check for duplicates
 	seen := make(map[string]bool)
 	totalKeys := 0
@@ -97,7 +97,7 @@ func TestGenerateProbeKeyConcurrency(t *testing.T) {
 		seen[key] = true
 		totalKeys++
 	}
-	
+
 	expectedKeys := goroutines * keysPerGoroutine
 	if totalKeys != expectedKeys {
 		t.Errorf("expected %d keys, got %d", expectedKeys, totalKeys)
