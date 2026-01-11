@@ -74,7 +74,6 @@ Environment overrides: `PVC_TRANSFER_S3_ACCESS_KEY`, `PVC_TRANSFER_S3_SECRET_KEY
 | `PVC_TRANSFER_S3_SECRET_KEY` | Overrides the S3 secret key (`s3.secretKey`) |
 | `PVC_TRANSFER_S3_ENDPOINT` | Overrides the S3 endpoint (`s3.endpoint`) |
 | `PVC_TRANSFER_LOG_LEVEL` | Overrides the log level (`logLevel`) |
-| `KUBECONFIG` | Standard Kubernetes environment variable for specifying the kubeconfig file path. |
 
 
 ## Usage
