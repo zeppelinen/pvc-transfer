@@ -19,9 +19,17 @@ import (
 	cfg "github.com/zeppelinen/pvc-transfer/internal/config"
 )
 
+// S3API defines the S3 operations used by this package.
+type S3API interface {
+	HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+	HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
+}
+
 // Client wraps the AWS S3 client and config.
 type Client struct {
-	Inner *s3.Client
+	Inner S3API
 }
 
 // New creates an S3 client honoring custom endpoints and credentials.
