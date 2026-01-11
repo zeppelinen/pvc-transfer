@@ -3,10 +3,13 @@ package s3util
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -133,7 +136,22 @@ func BuildObjectURL(endpoint, bucket, key string) string {
 
 // probeWrite does a minimal write/delete to confirm access when HeadBucket fails (e.g., R2 bucket-scoped tokens).
 func (c *Client) probeWrite(ctx context.Context, bucket string) error {
-	key := fmt.Sprintf("pvc-transfer-probe-%d", time.Now().UnixNano())
+	// Generate a unique key with timestamp, process ID, and random component to minimize collision risk.
+	key, err := generateProbeKey()
+	if err != nil {
+		return fmt.Errorf("failed to generate probe key: %w", err)
+	}
+
+	// Check if the key already exists (though extremely unlikely with our unique components).
+	exists, err := c.ObjectExists(ctx, bucket, key)
+	if err != nil {
+		// If we can't check existence, proceed anyway - the write will fail if there's a real issue.
+		// This maintains backward compatibility with providers that may restrict HeadObject.
+	} else if exists {
+		// Key collision detected - extremely rare but handle gracefully.
+		return fmt.Errorf("probe key %s already exists, refusing to overwrite", key)
+	}
+
 	_, putErr := c.Inner.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: &bucket,
 		Key:    &key,
@@ -148,4 +166,23 @@ func (c *Client) probeWrite(ctx context.Context, bucket string) error {
 		return fmt.Errorf("write probe denied: %w", putErr)
 	}
 	return putErr
+}
+
+// generateProbeKey creates a unique key for bucket verification probes.
+// It combines timestamp, process ID, and random bytes to minimize collision risk.
+func generateProbeKey() (string, error) {
+	// Get 8 random bytes for uniqueness.
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	randomHex := hex.EncodeToString(randomBytes)
+	
+	// Include process ID to prevent collisions from concurrent processes.
+	pid := os.Getpid()
+	
+	// Include nanosecond timestamp for temporal uniqueness.
+	timestamp := time.Now().UnixNano()
+	
+	return fmt.Sprintf("pvc-transfer-probe-%d-%d-%s", timestamp, pid, randomHex), nil
 }
