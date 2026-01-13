@@ -26,8 +26,26 @@ func New() *Orchestrator {
 	return &Orchestrator{}
 }
 
+// RunOptions controls which phases of the transfer are executed.
+type RunOptions struct {
+	ExportOnly bool
+	ImportOnly bool
+}
+
+func resolvePhases(opts RunOptions) (bool, bool, error) {
+	if opts.ExportOnly && opts.ImportOnly {
+		return false, false, fmt.Errorf("export-only and import-only cannot both be set")
+	}
+	return !opts.ImportOnly, !opts.ExportOnly, nil
+}
+
 // Run executes the transfer per configuration.
-func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
+func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptions) error {
+	shouldExport, shouldImport, err := resolvePhases(opts)
+	if err != nil {
+		return err
+	}
+
 	s3Client, err := s3util.New(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("init s3 client: %w", err)
@@ -44,66 +62,79 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("check object existence: %w", err)
 	}
-	if exists && !cfg.Overwrite {
+	if shouldExport && exists && !cfg.Overwrite {
 		return fmt.Errorf("object s3://%s/%s already exists; rerun with --overwrite or overwrite: true", cfg.S3.Bucket, cfg.S3.ObjectKey)
 	}
 
-	sourceClient, err := kube.NewClientset(cfg.Source.ClusterContext)
-	if err != nil {
-		return err
-	}
-	destClient, err := kube.NewClientset(cfg.Destination.ClusterContext)
-	if err != nil {
-		return err
+	if !shouldExport && !exists {
+		return fmt.Errorf("object s3://%s/%s not found; run export first or provide an existing archive", cfg.S3.Bucket, cfg.S3.ObjectKey)
 	}
 
-	if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, cfg.Source.PVCName); err != nil {
-		return err
+	var sourceClient, destClient kubernetes.Interface
+	if shouldExport {
+		sourceClient, err = kube.NewClientset(cfg.Source.ClusterContext)
+		if err != nil {
+			return err
+		}
+		if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, cfg.Source.PVCName); err != nil {
+			return err
+		}
+		if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, cfg.Job.ServiceAccount); err != nil {
+			return err
+		}
 	}
-	if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
-		return err
-	}
-	if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, cfg.Job.ServiceAccount); err != nil {
-		return err
-	}
-	if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, cfg.Job.ServiceAccount); err != nil {
-		return err
+	if shouldImport {
+		destClient, err = kube.NewClientset(cfg.Destination.ClusterContext)
+		if err != nil {
+			return err
+		}
+		if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
+			return err
+		}
+		if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, cfg.Job.ServiceAccount); err != nil {
+			return err
+		}
 	}
 
 	exportJobName := "pvc-transfer-export"
 	importJobName := "pvc-transfer-import"
 	verifyJobName := "pvc-transfer-verify"
 
-	if err := prepareSecret(ctx, sourceClient, cfg.Source.Namespace, kube.SecretName(exportJobName), cfg); err != nil {
-		return err
-	}
-	if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(importJobName), cfg); err != nil {
-		return err
+	var exportJob *batchv1.Job
+	if shouldExport {
+		if err := prepareSecret(ctx, sourceClient, cfg.Source.Namespace, kube.SecretName(exportJobName), cfg); err != nil {
+			return err
+		}
+
+		exportJob = kube.BuildExportJob(cfg, exportJobName, cfg.Source.Namespace)
+		if err := applyJob(ctx, sourceClient, exportJob); err != nil {
+			return fmt.Errorf("create export job: %w", err)
+		}
+		log.Printf("started export job %s in %s/%s", exportJobName, cfg.Source.ClusterContext, cfg.Source.Namespace)
+		if err := monitorJob(ctx, sourceClient, exportJob, "export"); err != nil {
+			return err
+		}
 	}
 
-	exportJob := kube.BuildExportJob(cfg, exportJobName, cfg.Source.Namespace)
-	if err := applyJob(ctx, sourceClient, exportJob); err != nil {
-		return fmt.Errorf("create export job: %w", err)
-	}
-	log.Printf("started export job %s in %s/%s", exportJobName, cfg.Source.ClusterContext, cfg.Source.Namespace)
-	if err := monitorJob(ctx, sourceClient, exportJob, "export"); err != nil {
-		return err
+	var importJob *batchv1.Job
+	if shouldImport {
+		if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(importJobName), cfg); err != nil {
+			return err
+		}
+
+		importJob = kube.BuildImportJob(cfg, importJobName, cfg.Destination.Namespace)
+		if err := applyJob(ctx, destClient, importJob); err != nil {
+			return fmt.Errorf("create import job: %w", err)
+		}
+		log.Printf("started import job %s in %s/%s", importJobName, cfg.Destination.ClusterContext, cfg.Destination.Namespace)
+		if err := monitorJob(ctx, destClient, importJob, "import"); err != nil {
+			return err
+		}
 	}
 
-	importJob := kube.BuildImportJob(cfg, importJobName, cfg.Destination.Namespace)
-	if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(importJobName), cfg); err != nil {
-		return err
-	}
-	if err := applyJob(ctx, destClient, importJob); err != nil {
-		return fmt.Errorf("create import job: %w", err)
-	}
-	log.Printf("started import job %s in %s/%s", importJobName, cfg.Destination.ClusterContext, cfg.Destination.Namespace)
-	if err := monitorJob(ctx, destClient, importJob, "import"); err != nil {
-		return err
-	}
-
-	if cfg.Job.VerifyMd5 {
-		verifyJob := kube.BuildVerifyJob(cfg, verifyJobName, cfg.Destination.Namespace)
+	var verifyJob *batchv1.Job
+	if shouldImport && cfg.Job.VerifyMd5 {
+		verifyJob = kube.BuildVerifyJob(cfg, verifyJobName, cfg.Destination.Namespace)
 		if err := prepareSecret(ctx, destClient, cfg.Destination.Namespace, kube.SecretName(verifyJobName), cfg); err != nil {
 			return err
 		}
@@ -117,13 +148,17 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 	}
 
 	if cfg.Cleanup != nil && *cfg.Cleanup {
-		if err := cleanupJob(ctx, sourceClient, exportJob); err != nil {
-			log.Printf("cleanup export job failed: %v", err)
+		if shouldExport && exportJob != nil {
+			if err := cleanupJob(ctx, sourceClient, exportJob); err != nil {
+				log.Printf("cleanup export job failed: %v", err)
+			}
 		}
-		if err := cleanupJob(ctx, destClient, importJob); err != nil {
-			log.Printf("cleanup import job failed: %v", err)
+		if shouldImport && importJob != nil {
+			if err := cleanupJob(ctx, destClient, importJob); err != nil {
+				log.Printf("cleanup import job failed: %v", err)
+			}
 		}
-		if cfg.Job.VerifyMd5 {
+		if shouldImport && cfg.Job.VerifyMd5 && verifyJob != nil {
 			if err := destClient.BatchV1().Jobs(cfg.Destination.Namespace).Delete(ctx, verifyJobName, metav1.DeleteOptions{}); err != nil {
 				log.Printf("cleanup verify job failed: %v", err)
 			}
@@ -131,7 +166,7 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config) error {
 				log.Printf("cleanup verify secret failed: %v", err)
 			}
 		}
-		if !cfg.Job.KeepIntermediateObject {
+		if shouldImport && !cfg.Job.KeepIntermediateObject {
 			if err := s3Client.DeleteObject(ctx, cfg.S3.Bucket, cfg.S3.ObjectKey); err != nil {
 				log.Printf("failed deleting S3 object: %v", err)
 			} else {

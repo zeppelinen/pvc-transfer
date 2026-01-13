@@ -23,6 +23,8 @@ func main() {
 		destPVC      string
 		sourceNS     string
 		destNS       string
+		exportOnly   bool
+		importOnly   bool
 	)
 
 	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
@@ -33,6 +35,8 @@ func main() {
 	flag.StringVar(&destPVC, "dest-pvc", "", "Override destination PVC name")
 	flag.StringVar(&sourceNS, "source-namespace", "", "Override source namespace")
 	flag.StringVar(&destNS, "dest-namespace", "", "Override destination namespace")
+	flag.BoolVar(&exportOnly, "export-only", false, "Run only the data export to S3")
+	flag.BoolVar(&importOnly, "import-only", false, "Run only the data import from S3")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath)
@@ -54,6 +58,11 @@ func main() {
 		log.Fatalf("invalid config: %v", err)
 	}
 
+	runOpts, err := parseRunOptions(exportOnly, importOnly)
+	if err != nil {
+		log.Fatalf("invalid flags: %v", err)
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -61,7 +70,7 @@ func main() {
 	runCtx, timeoutCancel := context.WithTimeout(ctx, 90*time.Minute)
 	defer timeoutCancel()
 
-	if err := orch.Run(runCtx, cfg); err != nil {
+	if err := orch.Run(runCtx, cfg, runOpts); err != nil {
 		log.Fatalf("transfer failed: %v", err)
 	}
 
@@ -105,4 +114,14 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 		value := false
 		cfg.Cleanup = &value
 	}
+}
+
+func parseRunOptions(exportOnly, importOnly bool) (orchestrator.RunOptions, error) {
+	if exportOnly && importOnly {
+		return orchestrator.RunOptions{}, fmt.Errorf("--export-only and --import-only cannot be used together")
+	}
+	return orchestrator.RunOptions{
+		ExportOnly: exportOnly,
+		ImportOnly: importOnly,
+	}, nil
 }

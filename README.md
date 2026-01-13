@@ -85,6 +85,11 @@ go run ./cmd/pvc-transfer \
   --no-cleanup
 ```
 
+Split the workflow into two phases when needed:
+- `--export-only` runs just the export to S3 and leaves the object intact for later use.
+- `--import-only` restores from an existing S3 object without re-exporting.
+These flags are mutually exclusive.
+
 Requires kubeconfig contexts for both clusters. Jobs use the `serviceAccount` configured above; apply the manifests in `rbac/` (adjust namespace as needed) to grant permissions to create Jobs/Pods and stream logs.
 
 ## Tests & Tooling

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/zeppelinen/pvc-transfer/internal/config"
+	"github.com/zeppelinen/pvc-transfer/internal/orchestrator"
 )
 
 func TestApplyOverridesRecomputesObjectKey(t *testing.T) {
@@ -72,5 +73,37 @@ func TestApplyOverridesNamespaces(t *testing.T) {
 	}
 	if cfg.Destination.Namespace != "new-dest" {
 		t.Fatalf("expected destination namespace override, got %s", cfg.Destination.Namespace)
+	}
+}
+
+func TestParseRunOptionsMutuallyExclusive(t *testing.T) {
+	if _, err := parseRunOptions(true, true); err == nil {
+		t.Fatalf("expected error when both export-only and import-only are set")
+	}
+}
+
+func TestParseRunOptionsValues(t *testing.T) {
+	opts, err := parseRunOptions(true, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts != (orchestrator.RunOptions{ExportOnly: true}) {
+		t.Fatalf("expected export-only to be true and import-only false, got %#v", opts)
+	}
+
+	opts, err = parseRunOptions(false, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts != (orchestrator.RunOptions{ImportOnly: true}) {
+		t.Fatalf("expected export-only to be false and import-only true, got %#v", opts)
+	}
+
+	opts, err = parseRunOptions(false, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts != (orchestrator.RunOptions{}) {
+		t.Fatalf("expected both flags false by default, got %#v", opts)
 	}
 }

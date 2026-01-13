@@ -78,3 +78,33 @@ func TestRetryRespectsAttemptsAndContext(t *testing.T) {
 		t.Fatalf("expected context cancellation, got %v", err)
 	}
 }
+
+func TestResolvePhases(t *testing.T) {
+	export, importPhase, err := resolvePhases(RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !export || !importPhase {
+		t.Fatalf("expected both phases to run by default")
+	}
+
+	export, importPhase, err = resolvePhases(RunOptions{ExportOnly: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !export || importPhase {
+		t.Fatalf("expected export only, got export=%t import=%t", export, importPhase)
+	}
+
+	export, importPhase, err = resolvePhases(RunOptions{ImportOnly: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if export || !importPhase {
+		t.Fatalf("expected import only, got export=%t import=%t", export, importPhase)
+	}
+
+	if _, _, err := resolvePhases(RunOptions{ExportOnly: true, ImportOnly: true}); err == nil {
+		t.Fatalf("expected error when both phases requested")
+	}
+}

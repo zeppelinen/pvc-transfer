@@ -46,7 +46,7 @@ func TestPVCTransferEndToEnd(t *testing.T) {
 	defer cancel()
 
 	orch := orchestrator.New()
-	if err := orch.Run(ctx, cfg); err != nil {
+	if err := orch.Run(ctx, cfg, orchestrator.RunOptions{}); err != nil {
 		t.Fatalf("orchestrator run failed: %v", err)
 	}
 }
@@ -91,7 +91,21 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/pvc-transfer",
+	runCLI := func(args ...string) {
+		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/pvc-transfer", args...)
+		cmd.Dir = repoRoot
+		cmd.Env = os.Environ()
+
+		var output bytes.Buffer
+		cmd.Stdout = &output
+		cmd.Stderr = &output
+
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("cli override run failed: %v\noutput:\n%s", err, output.String())
+		}
+	}
+
+	runCLI(
 		"--config", tmpConfig,
 		"--s3-object-key", overrideKey,
 		"--source-pvc", baseCfg.Source.PVCName,
@@ -99,17 +113,18 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 		"--source-namespace", baseCfg.Source.Namespace,
 		"--dest-namespace", baseCfg.Destination.Namespace,
 		"--overwrite",
+		"--export-only",
 	)
-	cmd.Dir = repoRoot
-	cmd.Env = os.Environ()
 
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("cli override run failed: %v\noutput:\n%s", err, output.String())
-	}
+	runCLI(
+		"--config", tmpConfig,
+		"--s3-object-key", overrideKey,
+		"--source-pvc", baseCfg.Source.PVCName,
+		"--dest-pvc", baseCfg.Destination.PVCName,
+		"--source-namespace", baseCfg.Source.Namespace,
+		"--dest-namespace", baseCfg.Destination.Namespace,
+		"--import-only",
+	)
 }
 
 func TestPVCTransferDefaultObjectKey(t *testing.T) {
