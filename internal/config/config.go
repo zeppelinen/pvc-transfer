@@ -116,6 +116,9 @@ func validateCluster(c ClusterConfig) error {
 	if c.PVCName == "" && len(c.PVCs) == 0 {
 		return errors.New("either pvcName/mountPath or pvcs list is required")
 	}
+	if c.PVCName != "" && len(c.PVCs) > 0 {
+		return errors.New("pvcName and pvcs are mutually exclusive; use pvcs to specify multiple PVCs")
+	}
 	if c.PVCName != "" && c.MountPath == "" {
 		return errors.New("mountPath is required when pvcName is specified")
 	}
