@@ -21,12 +21,14 @@ func TestApplyOverridesRecomputesObjectKey(t *testing.T) {
 			Namespace:      "ns1",
 			PVCName:        "pvc1",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc1", MountPath: "/data"}},
 		},
 		Destination: config.ClusterConfig{
 			ClusterContext: "ctx2",
 			Namespace:      "ns2",
 			PVCName:        "pvc2",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc2", MountPath: "/data"}},
 		},
 		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
 	}
@@ -37,6 +39,43 @@ func TestApplyOverridesRecomputesObjectKey(t *testing.T) {
 
 	if cfg.S3.ObjectKey != config.DefaultObjectKey("override-ns", "pvc1") {
 		t.Fatalf("expected object key recompute, got %s", cfg.S3.ObjectKey)
+	}
+}
+
+func TestApplyOverridesPreservesMountPath(t *testing.T) {
+	cfg := config.Config{
+		Version: "v1",
+		S3: config.S3Config{
+			Bucket:           "b",
+			Region:           "us-east-1",
+			ObjectKey:        config.DefaultObjectKey("ns1", "pvc1"),
+			ObjectKeyDerived: true,
+		},
+		Source: config.ClusterConfig{
+			ClusterContext: "ctx",
+			Namespace:      "ns1",
+			PVCName:        "pvc1",
+			MountPath:      "/mnt/source",
+		},
+		Destination: config.ClusterConfig{
+			ClusterContext: "ctx2",
+			Namespace:      "ns2",
+			PVCName:        "pvc2",
+			MountPath:      "/mnt/dest",
+		},
+		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
+	}
+
+	applyOverrides(&cfg, overrides{
+		sourcePVC: "new-src-pvc",
+		destPVC:   "new-dst-pvc",
+	})
+
+	if len(cfg.Source.PVCs) != 1 || cfg.Source.PVCs[0].MountPath != "/mnt/source" {
+		t.Fatalf("expected source MountPath /mnt/source preserved, got %+v", cfg.Source.PVCs)
+	}
+	if len(cfg.Destination.PVCs) != 1 || cfg.Destination.PVCs[0].MountPath != "/mnt/dest" {
+		t.Fatalf("expected dest MountPath /mnt/dest preserved, got %+v", cfg.Destination.PVCs)
 	}
 }
 
@@ -53,12 +92,14 @@ func TestApplyOverridesNamespaces(t *testing.T) {
 			Namespace:      "ns1",
 			PVCName:        "pvc1",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc1", MountPath: "/data"}},
 		},
 		Destination: config.ClusterConfig{
 			ClusterContext: "ctx2",
 			Namespace:      "ns2",
 			PVCName:        "pvc2",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc2", MountPath: "/data"}},
 		},
 		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
 	}

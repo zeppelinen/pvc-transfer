@@ -15,11 +15,16 @@ spec:
           command:
             - /bin/sh
             - -c
-            - mkdir -p /data/dir && echo hello-world > /data/dir/hello.txt && dd if=/dev/urandom of=/data/dir/random.bin bs=1M count=5
+            - mkdir -p /data/dir && echo hello-world > /data/dir/hello.txt && dd if=/dev/urandom of=/data/dir/random.bin bs=1M count=5 && mkdir -p /data2/dir && echo hello-pvc2 > /data2/dir/test.txt && dd if=/dev/urandom of=/data2/dir/random2.bin bs=1M count=2
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: data2
+              mountPath: /data2
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: data-pvc
+        - name: data2
+          persistentVolumeClaim:
+            claimName: data-pvc-2

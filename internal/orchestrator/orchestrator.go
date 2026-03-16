@@ -58,16 +58,27 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 		return fmt.Errorf("bucket verification failed: %w", err)
 	}
 
-	exists, err := s3Client.ObjectExists(ctx, cfg.S3.Bucket, cfg.S3.ObjectKey)
-	if err != nil {
-		return fmt.Errorf("check object existence: %w", err)
-	}
-	if shouldExport && exists && !cfg.Overwrite {
-		return fmt.Errorf("object s3://%s/%s already exists; rerun with --overwrite or overwrite: true", cfg.S3.Bucket, cfg.S3.ObjectKey)
+	var missingKeys []string
+	var existingKeys []string
+	for i := range cfg.Source.PVCs {
+		key := cfg.GetObjectKey(i)
+		exists, err := s3Client.ObjectExists(ctx, cfg.S3.Bucket, key)
+		if err != nil {
+			return fmt.Errorf("check object existence: %w", err)
+		}
+		if exists {
+			existingKeys = append(existingKeys, key)
+		} else {
+			missingKeys = append(missingKeys, key)
+		}
 	}
 
-	if !shouldExport && !exists {
-		return fmt.Errorf("object s3://%s/%s not found; run export first or provide an existing archive", cfg.S3.Bucket, cfg.S3.ObjectKey)
+	if shouldExport && len(existingKeys) > 0 && !cfg.Overwrite {
+		return fmt.Errorf("object(s) already exist: %v; rerun with --overwrite or overwrite: true", existingKeys)
+	}
+
+	if !shouldExport && len(missingKeys) > 0 {
+		return fmt.Errorf("object(s) not found: %v; run export first or provide an existing archive", missingKeys)
 	}
 
 	var sourceClient, destClient kubernetes.Interface
@@ -76,8 +87,10 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 		if err != nil {
 			return err
 		}
-		if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, cfg.Source.PVCName); err != nil {
-			return err
+		for _, pvc := range cfg.Source.PVCs {
+			if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, pvc.Name); err != nil {
+				return err
+			}
 		}
 		if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, cfg.Job.ServiceAccount); err != nil {
 			return err
@@ -88,8 +101,10 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 		if err != nil {
 			return err
 		}
-		if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
-			return err
+		for _, pvc := range cfg.Destination.PVCs {
+			if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, pvc.Name); err != nil {
+				return err
+			}
 		}
 		if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, cfg.Job.ServiceAccount); err != nil {
 			return err
@@ -167,10 +182,13 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 			}
 		}
 		if shouldImport && !cfg.Job.KeepIntermediateObject {
-			if err := s3Client.DeleteObject(ctx, cfg.S3.Bucket, cfg.S3.ObjectKey); err != nil {
-				log.Printf("failed deleting S3 object: %v", err)
-			} else {
-				_ = s3Client.WaitForDeletion(ctx, cfg.S3.Bucket, cfg.S3.ObjectKey)
+			for i := range cfg.Source.PVCs {
+				key := cfg.GetObjectKey(i)
+				if err := s3Client.DeleteObject(ctx, cfg.S3.Bucket, key); err != nil {
+					log.Printf("failed deleting S3 object %s: %v", key, err)
+				} else {
+					_ = s3Client.WaitForDeletion(ctx, cfg.S3.Bucket, key)
+				}
 			}
 		}
 	}

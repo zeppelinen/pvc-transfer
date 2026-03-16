@@ -72,8 +72,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	overrideKey := fmt.Sprintf("migrations/override-%d.tar.gz", time.Now().UnixNano())
 	overrideCfg := baseCfg
 	overrideCfg.S3.ObjectKey = "migrations/invalid-key.tar.gz"
-	overrideCfg.Source.PVCName = "invalid-source-pvc"
-	overrideCfg.Destination.PVCName = "invalid-dest-pvc"
+	overrideCfg.Source.PVCs[0].Name = "invalid-source-pvc"
+	overrideCfg.Destination.PVCs[0].Name = "invalid-dest-pvc"
 	overrideCfg.Source.Namespace = "invalid-source-ns"
 	overrideCfg.Destination.Namespace = "invalid-dest-ns"
 
@@ -92,7 +92,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	defer cancel()
 
 	runCLI := func(args ...string) {
-		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/pvc-transfer", args...)
+		fullArgs := append([]string{"run", "./cmd/pvc-transfer"}, args...)
+		cmd := exec.CommandContext(ctx, "go", fullArgs...)
 		cmd.Dir = repoRoot
 		cmd.Env = os.Environ()
 
@@ -108,8 +109,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	runCLI(
 		"--config", tmpConfig,
 		"--s3-object-key", overrideKey,
-		"--source-pvc", baseCfg.Source.PVCName,
-		"--dest-pvc", baseCfg.Destination.PVCName,
+		"--source-pvc", baseCfg.Source.PVCs[0].Name,
+		"--dest-pvc", baseCfg.Destination.PVCs[0].Name,
 		"--source-namespace", baseCfg.Source.Namespace,
 		"--dest-namespace", baseCfg.Destination.Namespace,
 		"--overwrite",
@@ -119,8 +120,8 @@ func TestPVCTransferCLIOverrides(t *testing.T) {
 	runCLI(
 		"--config", tmpConfig,
 		"--s3-object-key", overrideKey,
-		"--source-pvc", baseCfg.Source.PVCName,
-		"--dest-pvc", baseCfg.Destination.PVCName,
+		"--source-pvc", baseCfg.Source.PVCs[0].Name,
+		"--dest-pvc", baseCfg.Destination.PVCs[0].Name,
 		"--source-namespace", baseCfg.Source.Namespace,
 		"--dest-namespace", baseCfg.Destination.Namespace,
 		"--import-only",

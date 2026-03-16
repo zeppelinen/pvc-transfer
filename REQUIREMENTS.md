@@ -54,14 +54,16 @@ s3:
 source:  
   clusterContext: "source-ctx"  
   namespace: "production"  
-  pvcName: "data-pvc"  
-  mountPath: "/data"
+  pvcs:
+    - name: "data-pvc"  
+      mountPath: "/data"
 
 destination:  
   clusterContext: "dest-ctx"  
   namespace: "staging"  
-  pvcName: "data-pvc-new"  
-  mountPath: "/data"
+  pvcs:
+    - name: "data-pvc-new"  
+      mountPath: "/data"
 
 job:  
   image: "alpine:latest"  
