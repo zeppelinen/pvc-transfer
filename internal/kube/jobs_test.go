@@ -54,6 +54,42 @@ func TestBuildImportJob(t *testing.T) {
 	}
 }
 
+func TestBuildJobMultiPVC(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Source.PVCs = []config.PVCConfig{
+		{Name: "src-1", MountPath: "/data1"},
+		{Name: "src-2", MountPath: "/data2"},
+	}
+	cfg.Destination.PVCs = []config.PVCConfig{
+		{Name: "dst-1", MountPath: "/data1"},
+		{Name: "dst-2", MountPath: "/data2"},
+	}
+	
+	exportJob := BuildExportJob(cfg, "export-job", "default")
+	if len(exportJob.Spec.Template.Spec.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes for export job, got %d", len(exportJob.Spec.Template.Spec.Volumes))
+	}
+	if len(exportJob.Spec.Template.Spec.Containers[0].VolumeMounts) != 2 {
+		t.Fatalf("expected 2 volume mounts for export job, got %d", len(exportJob.Spec.Template.Spec.Containers[0].VolumeMounts))
+	}
+	exportCmd := strings.Join(exportJob.Spec.Template.Spec.Containers[0].Command, " ")
+	if !strings.Contains(exportCmd, "tar -cvzf - /data1 /data2") {
+		t.Fatalf("unexpected export command for multi-pvc: %s", exportCmd)
+	}
+
+	importJob := BuildImportJob(cfg, "import-job", "default")
+	if len(importJob.Spec.Template.Spec.Volumes) != 2 {
+		t.Fatalf("expected 2 volumes for import job, got %d", len(importJob.Spec.Template.Spec.Volumes))
+	}
+	if len(importJob.Spec.Template.Spec.Containers[0].VolumeMounts) != 2 {
+		t.Fatalf("expected 2 volume mounts for import job, got %d", len(importJob.Spec.Template.Spec.Containers[0].VolumeMounts))
+	}
+	importCmd := strings.Join(importJob.Spec.Template.Spec.Containers[0].Command, " ")
+	if !strings.Contains(importCmd, "tar -xvzf - -C /") {
+		t.Fatalf("unexpected import command for multi-pvc: %s", importCmd)
+	}
+}
+
 func TestSecretNameDeterministic(t *testing.T) {
 	if SecretName("jobA") != "jobA-s3-credentials" {
 		t.Fatalf("unexpected secret name")

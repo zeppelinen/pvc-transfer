@@ -101,13 +101,19 @@ s3:
 source:
   clusterContext: "${SRC_CTX}"
   namespace: "${SRC_NS}"
-  pvcName: "data-pvc"
-  mountPath: "/data"
+  pvcs:
+    - name: "data-pvc"
+      mountPath: "/data"
+    - name: "data-pvc-2"
+      mountPath: "/data2"
 destination:
   clusterContext: "${DST_CTX}"
   namespace: "${DST_NS}"
-  pvcName: "data-pvc-new"
-  mountPath: "/data"
+  pvcs:
+    - name: "data-pvc-new"
+      mountPath: "/data"
+    - name: "data-pvc-new-2"
+      mountPath: "/data2"
 job:
   image: "alpine:3.19"
   serviceAccount: "${SA_NAME}"
