@@ -94,7 +94,7 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 		if len(cfg.Source.PVCs) > 0 {
 			cfg.Source.PVCs[0].Name = ov.sourcePVC
 		} else {
-			cfg.Source.PVCs = []config.PVCConfig{{Name: ov.sourcePVC}}
+			cfg.Source.PVCs = []config.PVCConfig{{Name: ov.sourcePVC, MountPath: cfg.Source.MountPath}}
 		}
 		sourceChanged = true
 	}
@@ -107,7 +107,7 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 		if len(cfg.Destination.PVCs) > 0 {
 			cfg.Destination.PVCs[0].Name = ov.destPVC
 		} else {
-			cfg.Destination.PVCs = []config.PVCConfig{{Name: ov.destPVC}}
+			cfg.Destination.PVCs = []config.PVCConfig{{Name: ov.destPVC, MountPath: cfg.Destination.MountPath}}
 		}
 	}
 	if ov.destNS != "" {
@@ -116,12 +116,14 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 	if ov.s3ObjectKey != "" {
 		cfg.S3.ObjectKey = ov.s3ObjectKey
 		cfg.S3.ObjectKeyDerived = false
-	} else if sourceChanged && cfg.S3.ObjectKeyDerived {
-		firstPVC := "unknown"
+	} else if sourceChanged && cfg.S3.ObjectKeyDerived && len(cfg.Source.PVCs) <= 1 {
+		// For single-PVC configs, keep the stored key in sync with namespace/pvc changes.
+		// Multi-PVC configs use GetObjectKey(i) which derives keys per-PVC from Source.Namespace directly.
+		firstPVCName := "unknown"
 		if len(cfg.Source.PVCs) > 0 {
-			firstPVC = cfg.Source.PVCs[0].Name
+			firstPVCName = cfg.Source.PVCs[0].Name
 		}
-		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, firstPVC)
+		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, firstPVCName)
 	}
 	cfg.Overwrite = cfg.Overwrite || ov.overwrite
 	if ov.noCleanup {
