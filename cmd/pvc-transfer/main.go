@@ -91,6 +91,11 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 	sourceChanged := false
 	if ov.sourcePVC != "" && ov.sourcePVC != cfg.Source.PVCName {
 		cfg.Source.PVCName = ov.sourcePVC
+		if len(cfg.Source.PVCs) > 0 {
+			cfg.Source.PVCs[0].Name = ov.sourcePVC
+		} else {
+			cfg.Source.PVCs = []config.PVCConfig{{Name: ov.sourcePVC}}
+		}
 		sourceChanged = true
 	}
 	if ov.sourceNS != "" && ov.sourceNS != cfg.Source.Namespace {
@@ -99,6 +104,11 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 	}
 	if ov.destPVC != "" {
 		cfg.Destination.PVCName = ov.destPVC
+		if len(cfg.Destination.PVCs) > 0 {
+			cfg.Destination.PVCs[0].Name = ov.destPVC
+		} else {
+			cfg.Destination.PVCs = []config.PVCConfig{{Name: ov.destPVC}}
+		}
 	}
 	if ov.destNS != "" {
 		cfg.Destination.Namespace = ov.destNS
@@ -107,7 +117,14 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 		cfg.S3.ObjectKey = ov.s3ObjectKey
 		cfg.S3.ObjectKeyDerived = false
 	} else if sourceChanged && cfg.S3.ObjectKeyDerived {
-		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, cfg.Source.PVCName)
+		firstPVC := "unknown"
+		if len(cfg.Source.PVCs) > 0 {
+			firstPVC = cfg.Source.PVCs[0].Name
+		}
+		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, firstPVC)
+		if len(cfg.Source.PVCs) > 1 {
+			cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, "multi-"+firstPVC)
+		}
 	}
 	cfg.Overwrite = cfg.Overwrite || ov.overwrite
 	if ov.noCleanup {

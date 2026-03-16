@@ -25,12 +25,14 @@ func baseConfig() config.Config {
 			Namespace:      "default",
 			PVCName:        "src-pvc",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "src-pvc", MountPath: "/data"}},
 		},
 		Destination: config.ClusterConfig{
 			ClusterContext: "dst",
 			Namespace:      "default",
 			PVCName:        "dst-pvc",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "dst-pvc", MountPath: "/data"}},
 		},
 		Job: config.JobConfig{
 			Image:          "alpine",

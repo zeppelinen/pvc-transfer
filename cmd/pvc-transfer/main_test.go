@@ -21,12 +21,14 @@ func TestApplyOverridesRecomputesObjectKey(t *testing.T) {
 			Namespace:      "ns1",
 			PVCName:        "pvc1",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc1", MountPath: "/data"}},
 		},
 		Destination: config.ClusterConfig{
 			ClusterContext: "ctx2",
 			Namespace:      "ns2",
 			PVCName:        "pvc2",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc2", MountPath: "/data"}},
 		},
 		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
 	}
@@ -53,12 +55,14 @@ func TestApplyOverridesNamespaces(t *testing.T) {
 			Namespace:      "ns1",
 			PVCName:        "pvc1",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc1", MountPath: "/data"}},
 		},
 		Destination: config.ClusterConfig{
 			ClusterContext: "ctx2",
 			Namespace:      "ns2",
 			PVCName:        "pvc2",
 			MountPath:      "/data",
+			PVCs:           []config.PVCConfig{{Name: "pvc2", MountPath: "/data"}},
 		},
 		Job: config.JobConfig{Image: "alpine", ServiceAccount: "sa"},
 	}

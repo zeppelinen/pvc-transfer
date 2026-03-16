@@ -76,8 +76,10 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 		if err != nil {
 			return err
 		}
-		if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, cfg.Source.PVCName); err != nil {
-			return err
+		for _, pvc := range cfg.Source.PVCs {
+			if err := ensurePVC(ctx, sourceClient, cfg.Source.Namespace, pvc.Name); err != nil {
+				return err
+			}
 		}
 		if err := ensureServiceAccount(ctx, sourceClient, cfg.Source.Namespace, cfg.Job.ServiceAccount); err != nil {
 			return err
@@ -88,8 +90,10 @@ func (o *Orchestrator) Run(ctx context.Context, cfg config.Config, opts RunOptio
 		if err != nil {
 			return err
 		}
-		if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, cfg.Destination.PVCName); err != nil {
-			return err
+		for _, pvc := range cfg.Destination.PVCs {
+			if err := ensurePVC(ctx, destClient, cfg.Destination.Namespace, pvc.Name); err != nil {
+				return err
+			}
 		}
 		if err := ensureServiceAccount(ctx, destClient, cfg.Destination.Namespace, cfg.Job.ServiceAccount); err != nil {
 			return err
