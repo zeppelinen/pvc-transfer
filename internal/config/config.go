@@ -102,6 +102,10 @@ func (c Config) Validate() error {
 	if c.Job.ServiceAccount == "" {
 		return errors.New("job.serviceAccount is required")
 	}
+
+	if len(c.Source.PVCs) != len(c.Destination.PVCs) {
+		return fmt.Errorf("number of source PVCs (%d) must match destination PVCs (%d)", len(c.Source.PVCs), len(c.Destination.PVCs))
+	}
 	return nil
 }
 
@@ -188,13 +192,36 @@ func (c *Config) setDefaults() {
 			firstPVC = c.Source.PVCs[0].Name
 		}
 		c.S3.ObjectKey = DefaultObjectKey(c.Source.Namespace, firstPVC)
-		if len(c.Source.PVCs) > 1 {
-			c.S3.ObjectKey = DefaultObjectKey(c.Source.Namespace, "multi-"+firstPVC)
-		}
 		c.S3.ObjectKeyDerived = true
 	} else {
 		c.S3.ObjectKeyDerived = false
 	}
+}
+
+// GetObjectKey returns the specific S3 object key for the given PVC index.
+func (c *Config) GetObjectKey(idx int) string {
+	if len(c.Source.PVCs) <= 1 {
+		return c.S3.ObjectKey
+	}
+
+	pvcName := "unknown"
+	if idx < len(c.Source.PVCs) {
+		pvcName = c.Source.PVCs[idx].Name
+	}
+
+	if c.S3.ObjectKeyDerived {
+		return DefaultObjectKey(c.Source.Namespace, pvcName)
+	}
+
+	// For explicit object keys on multi-PVC jobs, append the PVC name to prevent collisions.
+	// E.g., "my-key.tar.gz" -> "my-key-pvcname.tar.gz"
+	base := c.S3.ObjectKey
+	ext := ""
+	if len(base) > 7 && base[len(base)-7:] == ".tar.gz" {
+		ext = ".tar.gz"
+		base = base[:len(base)-7]
+	}
+	return fmt.Sprintf("%s-%s%s", base, pvcName, ext)
 }
 
 // DefaultObjectKey builds a deterministic object key based on namespace and PVC.

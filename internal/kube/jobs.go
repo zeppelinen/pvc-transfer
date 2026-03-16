@@ -2,6 +2,7 @@ package kube
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zeppelinen/pvc-transfer/internal/config"
 	batchv1 "k8s.io/api/batch/v1"
@@ -21,24 +22,21 @@ func BuildImportJob(cfg config.Config, name string, ns string) *batchv1.Job {
 
 // BuildVerifyJob creates a verification job to compare MD5 hashes between S3 object and destination PVC.
 func BuildVerifyJob(cfg config.Config, name string, ns string) *batchv1.Job {
-	var tarPaths string
-	if len(cfg.Destination.PVCs) == 1 {
-		tarPaths = fmt.Sprintf("-C %s .", cfg.Destination.PVCs[0].MountPath)
-	} else {
-		for _, p := range cfg.Destination.PVCs {
-			tarPaths += p.MountPath + " "
-		}
+	cmds := []string{"apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log"}
+	for i, p := range cfg.Destination.PVCs {
+		key := cfg.GetObjectKey(i)
+		tarPaths := fmt.Sprintf("-C %s .", p.MountPath)
+		verifyCmd := fmt.Sprintf(`dest_%d=$(tar -cvzf - %[2]s | md5sum | awk '{print $1}') && `+
+			`s3_%d=$(aws s3 cp s3://%[4]s/%[5]s - | md5sum | awk '{print $1}') && `+
+			`echo "DEST_MD5_%d=$dest_%d" && echo "S3_MD5_%d=$s3_%d" && `+
+			`if [ "$dest_%d" = "$s3_%d" ]; then echo "MD5_MATCH_%d"; else echo "MD5_MISMATCH_%d"; exit 1; fi`,
+			i, tarPaths, i, cfg.S3.Bucket, key, i, i, i, i, i, i, i, i)
+		cmds = append(cmds, verifyCmd)
 	}
 
 	command := []string{
 		"/bin/sh", "-c",
-		fmt.Sprintf(`
-apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log &&
-dest=$(tar -cvzf - %[1]s | md5sum | awk '{print $1}') &&
-s3=$(aws s3 cp s3://%[2]s/%[3]s - | md5sum | awk '{print $1}') &&
-echo "DEST_MD5=$dest" && echo "S3_MD5=$s3" &&
-if [ "$dest" = "$s3" ]; then echo "MD5_MATCH"; else echo "MD5_MISMATCH"; exit 1; fi
-`, tarPaths, cfg.S3.Bucket, cfg.S3.ObjectKey),
+		strings.Join(cmds, " &&\n"),
 	}
 	return buildJob(cfg, name, ns, cfg.Destination.PVCs, false, command)
 }
@@ -118,31 +116,23 @@ func buildJob(cfg config.Config, name, ns string, pvcs []config.PVCConfig, readO
 }
 
 func exportCommand(cfg config.Config) []string {
-	var tarPaths string
-	if len(cfg.Source.PVCs) == 1 {
-		tarPaths = fmt.Sprintf("-C %s .", cfg.Source.PVCs[0].MountPath)
-	} else {
-		for _, p := range cfg.Source.PVCs {
-			tarPaths += p.MountPath + " "
-		}
+	cmds := []string{"apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log"}
+	for i, p := range cfg.Source.PVCs {
+		key := cfg.GetObjectKey(i)
+		tarCmd := fmt.Sprintf(`tar -cvzf - -C %s . | mbuffer -m 128M | aws s3 cp - s3://%s/%s`, p.MountPath, cfg.S3.Bucket, key)
+		cmds = append(cmds, tarCmd)
 	}
-	return []string{"/bin/sh", "-c", fmt.Sprintf(`
-apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log &&
-tar -cvzf - %[1]s | mbuffer -m 128M | aws s3 cp - s3://%[2]s/%[3]s
-`, tarPaths, cfg.S3.Bucket, cfg.S3.ObjectKey)}
+	return []string{"/bin/sh", "-c", strings.Join(cmds, " &&\n")}
 }
 
 func importCommand(cfg config.Config) []string {
-	var extractPath string
-	if len(cfg.Destination.PVCs) == 1 {
-		extractPath = cfg.Destination.PVCs[0].MountPath
-	} else {
-		extractPath = "/"
+	cmds := []string{"apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log"}
+	for i, p := range cfg.Destination.PVCs {
+		key := cfg.GetObjectKey(i)
+		extractCmd := fmt.Sprintf(`aws s3 cp s3://%s/%s - | mbuffer -m 128M | tar -xvzf - -C %s`, cfg.S3.Bucket, key, p.MountPath)
+		cmds = append(cmds, extractCmd)
 	}
-	return []string{"/bin/sh", "-c", fmt.Sprintf(`
-apk add --no-cache aws-cli tar gzip mbuffer >/tmp/setup.log &&
-aws s3 cp s3://%[2]s/%[3]s - | mbuffer -m 128M | tar -xvzf - -C %[1]s
-`, extractPath, cfg.S3.Bucket, cfg.S3.ObjectKey)}
+	return []string{"/bin/sh", "-c", strings.Join(cmds, " &&\n")}
 }
 
 // SecretName returns a deterministic secret name per job.

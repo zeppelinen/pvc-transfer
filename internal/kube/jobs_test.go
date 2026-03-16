@@ -73,7 +73,7 @@ func TestBuildJobMultiPVC(t *testing.T) {
 		t.Fatalf("expected 2 volume mounts for export job, got %d", len(exportJob.Spec.Template.Spec.Containers[0].VolumeMounts))
 	}
 	exportCmd := strings.Join(exportJob.Spec.Template.Spec.Containers[0].Command, " ")
-	if !strings.Contains(exportCmd, "tar -cvzf - /data1 /data2") {
+	if !strings.Contains(exportCmd, "tar -cvzf - -C /data1 . | mbuffer") || !strings.Contains(exportCmd, "tar -cvzf - -C /data2 . | mbuffer") {
 		t.Fatalf("unexpected export command for multi-pvc: %s", exportCmd)
 	}
 
@@ -85,7 +85,7 @@ func TestBuildJobMultiPVC(t *testing.T) {
 		t.Fatalf("expected 2 volume mounts for import job, got %d", len(importJob.Spec.Template.Spec.Containers[0].VolumeMounts))
 	}
 	importCmd := strings.Join(importJob.Spec.Template.Spec.Containers[0].Command, " ")
-	if !strings.Contains(importCmd, "tar -xvzf - -C /") {
+	if !strings.Contains(importCmd, "tar -xvzf - -C /data1") || !strings.Contains(importCmd, "tar -xvzf - -C /data2") {
 		t.Fatalf("unexpected import command for multi-pvc: %s", importCmd)
 	}
 }

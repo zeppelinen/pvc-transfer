@@ -122,9 +122,6 @@ func applyOverrides(cfg *config.Config, ov overrides) {
 			firstPVC = cfg.Source.PVCs[0].Name
 		}
 		cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, firstPVC)
-		if len(cfg.Source.PVCs) > 1 {
-			cfg.S3.ObjectKey = config.DefaultObjectKey(cfg.Source.Namespace, "multi-"+firstPVC)
-		}
 	}
 	cfg.Overwrite = cfg.Overwrite || ov.overwrite
 	if ov.noCleanup {
